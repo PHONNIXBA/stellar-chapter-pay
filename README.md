@@ -33,6 +33,10 @@ The goal of this level is to build a first working Stellar dApp on testnet and p
 - Freighter API
 - Stellar SDK
 
+## Screenshot
+
+![Stellar Chapter Pay Demo](./screenshot/image.png)
+
 ## How to Run Locally
 
 ### 1. Clone the repository
