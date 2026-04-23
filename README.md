@@ -1,16 +1,42 @@
-# React + Vite
+# Stellar Chapter Pay
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Stellar Chapter Pay is a beginner-friendly Stellar dApp built on **Stellar Testnet**.
 
-Currently, two official plugins are available:
+This project simulates a **chapter-based reading payment flow**:
+users connect their Freighter wallet, check their XLM balance, and send a testnet XLM payment to simulate unlocking a book chapter.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Project Goal
 
-## React Compiler
+This project was built for **Level 1 – White Belt** of the Stellar learning path.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The goal of this level is to build a first working Stellar dApp on testnet and practice the core fundamentals of Stellar development:
 
-## Expanding the ESLint configuration
+- wallet connection
+- balance display
+- sending transactions
+- showing transaction feedback to the user
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Features
+
+- Connect Freighter wallet
+- Disconnect wallet
+- Display connected wallet address
+- Fetch and display XLM balance on Stellar Testnet
+- Send XLM payment on Testnet
+- Show transaction success or failure state
+- Show transaction hash after a successful payment
+
+## Tech Stack
+
+- React
+- Vite
+- Freighter API
+- Stellar SDK
+
+## How to Run Locally
+
+### 1. Clone the repository
+
+```bash
+git clone <your-github-repo-link>
+cd stellar-chapter-pay
