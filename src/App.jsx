@@ -1,192 +1,315 @@
 import { useState } from "react";
 import {
-  setAllowed,
   getAddress,
-  isConnected,
-  signTransaction,
   getNetwork,
+  isConnected,
+  setAllowed,
+  signTransaction,
 } from "@stellar/freighter-api";
-import {
-  Horizon,
-  Networks,
-  TransactionBuilder,
-  Operation,
-  Asset,
-} from "@stellar/stellar-sdk";
+import * as StellarSDK from "@stellar/stellar-sdk";
 
 function App() {
+  const CONTRACT_ID =
+    "CA4OE7GBLEUISESUKWDOLTX4B25CNFWZMGT4LIMFOWOYW5L3MD7WV6RI";
+
+  const rpcServer = new StellarSDK.rpc.Server(
+    "https://soroban-testnet.stellar.org:443"
+  );
+
   const [walletAddress, setWalletAddress] = useState("");
   const [walletStatus, setWalletStatus] = useState("Wallet not connected");
   const [isWalletConnected, setIsWalletConnected] = useState(false);
-  const [balance, setBalance] = useState("");
 
-  const [destination, setDestination] = useState("");
-  const [amount, setAmount] = useState("");
+  const [chapterStatus, setChapterStatus] = useState("Unknown");
   const [txStatus, setTxStatus] = useState("No transaction yet.");
   const [txHash, setTxHash] = useState("");
 
-  const TESTNET_SERVER = "https://horizon-testnet.stellar.org";
-  const server = new Horizon.Server(TESTNET_SERVER);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [errorType, setErrorType] = useState("");
 
-  const loadBalance = async (address) => {
-    const account = await server.loadAccount(address);
-    const xlmBalance = account.balances.find(
-      (item) => item.asset_type === "native"
-    );
-    setBalance(xlmBalance ? xlmBalance.balance : "0");
+  const [isLoadingStatus, setIsLoadingStatus] = useState(false);
+  const [isUnlocking, setIsUnlocking] = useState(false);
+
+  const clearMessages = () => {
+    setErrorMessage("");
+    setErrorType("");
+    setTxHash("");
+  };
+
+  const showError = (type, message) => {
+    setErrorType(type);
+    setErrorMessage(message);
   };
 
   const handleConnectWallet = async () => {
     try {
-      setWalletStatus("Checking Freighter wallet...");
+      clearMessages();
+      setWalletStatus("Checking wallet...");
 
       const connected = await isConnected();
+
       if (!connected.isConnected) {
-        setWalletStatus("Freighter wallet is not installed in your browser.");
+        setWalletStatus("Wallet not found.");
+        showError(
+          "Wallet Not Found",
+          "Freighter wallet is not installed in this browser."
+        );
+        return;
+      }
+
+      const networkResult = await getNetwork();
+
+      if (networkResult.error) {
+        setWalletStatus("Could not detect wallet network.");
+        showError(
+          "Network Error",
+          "Could not read Freighter network. Please open Freighter and try again."
+        );
+        return;
+      }
+
+      if (networkResult.network !== "TESTNET") {
+        setWalletStatus("Wrong network.");
+        showError(
+          "Wrong Network",
+          "Please switch Freighter wallet to TESTNET."
+        );
         return;
       }
 
       await setAllowed();
 
       const addressResult = await getAddress();
+
       if (addressResult.error || !addressResult.address) {
         setWalletStatus("Could not get wallet address.");
-        return;
-      }
-
-      const networkResult = await getNetwork();
-      if (networkResult.error) {
-        setWalletStatus("Could not read Freighter network.");
-        return;
-      }
-
-      if (networkResult.network !== "TESTNET") {
-        setWalletStatus("Please switch Freighter wallet to TESTNET.");
+        showError(
+          "Connection Failed",
+          "Wallet connection failed. Please try again."
+        );
         return;
       }
 
       const userAddress = addressResult.address;
+
       setWalletAddress(userAddress);
       setIsWalletConnected(true);
-
-      await loadBalance(userAddress);
       setWalletStatus("Wallet connected successfully.");
+
+      await readChapterStatus(userAddress);
     } catch (error) {
-      console.error("Wallet connection error:", error);
-      setWalletStatus("Something went wrong while connecting wallet.");
+      console.error("Connect wallet error:", error);
+      setWalletStatus("Wallet connection failed.");
+      showError(
+        "Unexpected Error",
+        "Something went wrong while connecting wallet."
+      );
     }
   };
 
   const handleDisconnectWallet = () => {
     setWalletAddress("");
-    setBalance("");
     setIsWalletConnected(false);
     setWalletStatus("Wallet disconnected.");
-    setDestination("");
-    setAmount("");
+    setChapterStatus("Unknown");
     setTxStatus("No transaction yet.");
     setTxHash("");
+    setErrorMessage("");
+    setErrorType("");
   };
 
-  const handleSendPayment = async () => {
+  const readChapterStatus = async (addressToCheck = walletAddress) => {
     try {
-      setTxStatus("Preparing transaction...");
-      setTxHash("");
-
-      if (!walletAddress) {
-        setTxStatus("Please connect your wallet first.");
+      if (!addressToCheck) {
+        showError(
+          "Wallet Not Connected",
+          "Please connect your wallet before checking chapter status."
+        );
         return;
       }
 
-      if (!destination || !amount) {
-        setTxStatus("Please enter destination address and amount.");
+      setIsLoadingStatus(true);
+      clearMessages();
+
+      const account = await rpcServer.getAccount(addressToCheck);
+
+      const transaction = new StellarSDK.TransactionBuilder(account, {
+        fee: StellarSDK.BASE_FEE,
+        networkPassphrase: StellarSDK.Networks.TESTNET,
+      })
+        .addOperation(
+          StellarSDK.Operation.invokeContractFunction({
+            contract: CONTRACT_ID,
+            function: "is_unlocked",
+            args: [StellarSDK.Address.fromString(addressToCheck).toScVal()],
+          })
+        )
+        .setTimeout(30)
+        .build();
+
+      const prepared = await rpcServer.prepareTransaction(transaction);
+      const response = await rpcServer.simulateTransaction(prepared);
+
+      if (response.result && response.result.retval) {
+        const value = StellarSDK.scValToNative(response.result.retval);
+        setChapterStatus(value ? "Unlocked" : "Locked");
+      } else {
+        setChapterStatus("Unknown");
+        showError(
+          "Read Failed",
+          "Could not read chapter status from contract."
+        );
+      }
+    } catch (error) {
+      console.error("Read contract error:", error);
+      setChapterStatus("Unknown");
+      showError("Read Failed", "Failed to load chapter status.");
+    } finally {
+      setIsLoadingStatus(false);
+    }
+  };
+
+  const handleUnlockChapter = async () => {
+    try {
+      clearMessages();
+      setTxStatus("Preparing unlock transaction...");
+      setIsUnlocking(true);
+
+      if (!isWalletConnected || !walletAddress) {
+        showError(
+          "Wallet Not Connected",
+          "Please connect your wallet before unlocking a chapter."
+        );
+        setTxStatus("Transaction blocked.");
         return;
       }
 
       const networkResult = await getNetwork();
-      if (networkResult.error) {
-        setTxStatus("Could not verify Freighter network.");
+
+      if (networkResult.error || networkResult.network !== "TESTNET") {
+        showError(
+          "Wrong Network",
+          "Please switch Freighter wallet to TESTNET before signing."
+        );
+        setTxStatus("Transaction blocked.");
         return;
       }
 
-      if (networkResult.network !== "TESTNET") {
-        setTxStatus("Freighter wallet is not on TESTNET.");
+      if (chapterStatus === "Unlocked") {
+        showError(
+          "Already Unlocked",
+          "This chapter has already been unlocked for this wallet."
+        );
+        setTxStatus("Transaction blocked.");
         return;
       }
 
-      const sourceAccount = await server.loadAccount(walletAddress);
+      const account = await rpcServer.getAccount(walletAddress);
 
-      const transaction = new TransactionBuilder(sourceAccount, {
-        fee: "100",
-        networkPassphrase: Networks.TESTNET,
+      const transaction = new StellarSDK.TransactionBuilder(account, {
+        fee: StellarSDK.BASE_FEE,
+        networkPassphrase: StellarSDK.Networks.TESTNET,
       })
         .addOperation(
-          Operation.payment({
-            destination,
-            asset: Asset.native(),
-            amount,
+          StellarSDK.Operation.invokeContractFunction({
+            contract: CONTRACT_ID,
+            function: "unlock",
+            args: [StellarSDK.Address.fromString(walletAddress).toScVal()],
           })
         )
-        .setTimeout(60)
+        .setTimeout(30)
         .build();
 
-      const signed = await signTransaction(transaction.toXDR(), {
-        networkPassphrase: Networks.TESTNET,
+      const prepared = await rpcServer.prepareTransaction(transaction);
+
+      setTxStatus("Waiting for wallet signature...");
+
+      const signed = await signTransaction(prepared.toXDR(), {
+        networkPassphrase: StellarSDK.Networks.TESTNET,
         address: walletAddress,
       });
 
       if (signed.error || !signed.signedTxXdr) {
-        setTxStatus("Transaction signing was cancelled or failed.");
+        showError(
+          "Signature Rejected",
+          "Transaction signing was cancelled or rejected by the user."
+        );
+        setTxStatus("Transaction failed.");
         return;
       }
 
-      const signedTransaction = TransactionBuilder.fromXDR(
+      const signedTransaction = StellarSDK.TransactionBuilder.fromXDR(
         signed.signedTxXdr,
-        Networks.TESTNET
+        StellarSDK.Networks.TESTNET
       );
 
-      const response = await server.submitTransaction(signedTransaction);
+      setTxStatus("Submitting transaction to network...");
 
-      setTxStatus("Transaction sent successfully.");
-      setTxHash(response.hash);
+      const sendResponse = await rpcServer.sendTransaction(signedTransaction);
 
-      await loadBalance(walletAddress);
+      if (!sendResponse.hash) {
+        showError(
+          "Missing Transaction Hash",
+          "The network did not return a transaction hash."
+        );
+        setTxStatus("Transaction failed.");
+        return;
+      }
+
+      setTxHash(sendResponse.hash);
+      setTxStatus("Transaction submitted. Waiting for confirmation...");
+
+      while (true) {
+        const getResponse = await rpcServer.getTransaction(sendResponse.hash);
+
+        if (getResponse.status === "SUCCESS") {
+          setTxStatus("Unlock transaction successful.");
+          await readChapterStatus(walletAddress);
+          break;
+        }
+
+        if (getResponse.status === "FAILED") {
+          console.error("Failed transaction response:", getResponse);
+          showError(
+            "Contract Call Failed",
+            "The contract call failed on testnet."
+          );
+          setTxStatus("Unlock transaction failed.");
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+      }
     } catch (error) {
-      console.error("Full transaction error:", error);
+      console.error("Unlock contract error:", error);
 
-      const errorMessage =
-        error?.response?.data?.extras?.result_codes?.operations?.join(", ") ||
-        error?.response?.data?.detail ||
-        error?.message ||
-        "Transaction failed.";
+      const message =
+        error?.message || "Something went wrong while unlocking the chapter.";
 
-      setTxStatus(`Transaction failed: ${errorMessage}`);
+      showError("Unexpected Error", message);
+      setTxStatus("Transaction failed.");
+    } finally {
+      setIsUnlocking(false);
     }
   };
 
   return (
     <div style={styles.page}>
       <div style={styles.card}>
-        <h1 style={styles.title}>Stellar Chapter Pay</h1>
+        <h1 style={styles.title}>Stellar Chapter Unlock</h1>
         <p style={styles.subtitle}>
-          A beginner-friendly Stellar dApp for chapter-based reading payments.
+          Level 2 demo: frontend calls a deployed Stellar smart contract to
+          unlock a chapter.
         </p>
 
         <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Wallet Connection</h2>
+          <h2 style={styles.sectionTitle}>Wallet</h2>
           <p style={styles.text}>{walletStatus}</p>
 
           {walletAddress && (
             <div style={styles.infoBox}>
               <strong>Wallet Address:</strong>
               <p style={styles.addressText}>{walletAddress}</p>
-            </div>
-          )}
-
-          {balance && (
-            <div style={styles.infoBox}>
-              <strong>XLM Balance:</strong>
-              <p style={styles.balanceText}>{balance} XLM</p>
             </div>
           )}
 
@@ -206,29 +329,46 @@ function App() {
         </div>
 
         <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Send Testnet Payment</h2>
+          <h2 style={styles.sectionTitle}>Contract</h2>
 
-          <label style={styles.label}>Receiver Address</label>
-          <input
-            style={styles.input}
-            type="text"
-            placeholder="Enter Stellar testnet address"
-            value={destination}
-            onChange={(e) => setDestination(e.target.value)}
-          />
+          <div style={styles.infoBox}>
+            <strong>Contract Address:</strong>
+            <p style={styles.addressText}>{CONTRACT_ID}</p>
+          </div>
 
-          <label style={styles.label}>Amount (XLM)</label>
-          <input
-            style={styles.input}
-            type="text"
-            placeholder="Example: 0.5"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
+          <div style={styles.infoBox}>
+            <strong>Chapter Status:</strong>
+            <p
+              style={{
+                ...styles.statusText,
+                color: chapterStatus === "Unlocked" ? "#34d399" : "#fbbf24",
+              }}
+            >
+              {isLoadingStatus ? "Loading..." : chapterStatus}
+            </p>
+          </div>
 
-          <button style={styles.sendButton} onClick={handleSendPayment}>
-            Pay for Chapter
-          </button>
+          <div style={styles.buttonRow}>
+            <button
+              style={styles.refreshButton}
+              onClick={() => readChapterStatus(walletAddress)}
+              disabled={isLoadingStatus}
+            >
+              Refresh Status
+            </button>
+
+            <button
+              style={styles.unlockButton}
+              onClick={handleUnlockChapter}
+              disabled={isUnlocking}
+            >
+              {isUnlocking ? "Unlocking..." : "Unlock Chapter"}
+            </button>
+          </div>
+        </div>
+
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Transaction</h2>
 
           <div style={styles.infoBox}>
             <strong>Transaction Status:</strong>
@@ -241,6 +381,24 @@ function App() {
               <p style={styles.hashText}>{txHash}</p>
             </div>
           )}
+
+          {errorMessage && (
+            <div style={styles.errorBox}>
+              <strong>{errorType || "Error"}:</strong>
+              <p style={styles.errorText}>{errorMessage}</p>
+            </div>
+          )}
+        </div>
+
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>Handled Error Types</h2>
+          <ul style={styles.list}>
+            <li>Wallet not connected</li>
+            <li>Wrong network</li>
+            <li>Already unlocked</li>
+            <li>Signature rejected</li>
+            <li>Contract call failed</li>
+          </ul>
         </div>
       </div>
     </div>
@@ -260,7 +418,7 @@ const styles = {
   },
   card: {
     width: "100%",
-    maxWidth: "760px",
+    maxWidth: "820px",
     backgroundColor: "#111827",
     color: "#f9fafb",
     borderRadius: "16px",
@@ -269,15 +427,16 @@ const styles = {
   },
   title: {
     margin: "0 0 12px 0",
-    fontSize: "36px",
+    fontSize: "34px",
     color: "#a78bfa",
     textAlign: "center",
   },
   subtitle: {
     margin: "0 0 24px 0",
-    fontSize: "18px",
+    fontSize: "17px",
     color: "#d1d5db",
     textAlign: "center",
+    lineHeight: "1.6",
   },
   section: {
     marginTop: "24px",
@@ -312,6 +471,20 @@ const styles = {
     borderRadius: "10px",
     border: "1px solid #374151",
   },
+  errorBox: {
+    marginTop: "16px",
+    padding: "14px",
+    backgroundColor: "#2b1414",
+    borderRadius: "10px",
+    border: "1px solid #7f1d1d",
+  },
+  errorText: {
+    marginTop: "8px",
+    fontSize: "14px",
+    lineHeight: "1.6",
+    color: "#fca5a5",
+    wordBreak: "break-word",
+  },
   addressText: {
     marginTop: "8px",
     fontSize: "14px",
@@ -319,18 +492,18 @@ const styles = {
     color: "#93c5fd",
     wordBreak: "break-all",
   },
-  balanceText: {
-    marginTop: "8px",
-    fontSize: "20px",
-    fontWeight: "bold",
-    color: "#34d399",
-  },
   hashText: {
     marginTop: "8px",
     fontSize: "14px",
     lineHeight: "1.6",
     color: "#fca5a5",
     wordBreak: "break-all",
+  },
+  statusText: {
+    marginTop: "8px",
+    fontSize: "22px",
+    fontWeight: "bold",
+    textAlign: "center",
   },
   buttonRow: {
     display: "flex",
@@ -358,25 +531,17 @@ const styles = {
     fontSize: "15px",
     fontWeight: "bold",
   },
-  label: {
-    display: "block",
-    marginTop: "14px",
-    marginBottom: "8px",
-    fontSize: "14px",
-    color: "#d1d5db",
-  },
-  input: {
-    width: "100%",
-    padding: "12px",
+  refreshButton: {
+    backgroundColor: "#0ea5e9",
+    color: "white",
+    border: "none",
+    padding: "12px 18px",
     borderRadius: "10px",
-    border: "1px solid #4b5563",
-    backgroundColor: "#111827",
-    color: "#f9fafb",
-    fontSize: "14px",
-    boxSizing: "border-box",
+    cursor: "pointer",
+    fontSize: "15px",
+    fontWeight: "bold",
   },
-  sendButton: {
-    marginTop: "18px",
+  unlockButton: {
     backgroundColor: "#10b981",
     color: "white",
     border: "none",
@@ -385,7 +550,13 @@ const styles = {
     cursor: "pointer",
     fontSize: "15px",
     fontWeight: "bold",
-    width: "100%",
+  },
+  list: {
+    margin: 0,
+    paddingLeft: "20px",
+    lineHeight: "1.9",
+    color: "#e5e7eb",
+    fontSize: "15px",
   },
 };
 
