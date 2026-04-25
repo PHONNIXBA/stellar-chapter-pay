@@ -8,15 +8,13 @@ import {
 } from "@stellar/freighter-api";
 import * as StellarSDK from "@stellar/stellar-sdk";
 
-const CONTRACT_ID =
-  "CA4OE7GBLEUISESUKWDOLTX4B25CNFWZMGT4LIMFOWOYW5L3MD7WV6RI";
-
 const RPC_URL = "https://soroban-testnet.stellar.org:443";
 
 const CACHE_KEYS = {
   walletAddress: "stellar_chapter_wallet_address",
-  chapterStatus: "stellar_chapter_status",
+  unlockedCount: "stellar_unlocked_count",
   txHash: "stellar_chapter_tx_hash",
+  tokenBalance: "stellar_chapter_token_balance",
 };
 
 function shortenMiddle(value, start = 8, end = 6) {
@@ -26,12 +24,23 @@ function shortenMiddle(value, start = 8, end = 6) {
 
 function App() {
   const rpcServer = useMemo(() => new StellarSDK.rpc.Server(RPC_URL), []);
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth < 900 : false
+  );
+
+  const [chapterContractId, setChapterContractId] = useState("");
+  const [tokenContractId, setTokenContractId] = useState("");
+  const [contractsLoaded, setContractsLoaded] = useState(false);
 
   const [walletAddress, setWalletAddress] = useState("");
   const [walletStatus, setWalletStatus] = useState("Wallet not connected");
   const [isWalletConnected, setIsWalletConnected] = useState(false);
 
-  const [chapterStatus, setChapterStatus] = useState("Unknown");
+  const [unlockedCount, setUnlockedCount] = useState("0");
+  const [pricePerChapter, setPricePerChapter] = useState("...");
+  const [tokenBalance, setTokenBalance] = useState("0");
+  const [quantity, setQuantity] = useState("1");
+
   const [txStatus, setTxStatus] = useState("No transaction yet.");
   const [txHash, setTxHash] = useState("");
 
@@ -41,6 +50,7 @@ function App() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [isClaiming, setIsClaiming] = useState(false);
 
   const clearMessages = () => {
     setErrorMessage("");
@@ -62,21 +72,201 @@ function App() {
 
   const loadCachedData = () => {
     const cachedWallet = localStorage.getItem(CACHE_KEYS.walletAddress);
-    const cachedChapterStatus = localStorage.getItem(CACHE_KEYS.chapterStatus);
+    const cachedUnlockedCount = localStorage.getItem(CACHE_KEYS.unlockedCount);
     const cachedTxHash = localStorage.getItem(CACHE_KEYS.txHash);
+    const cachedTokenBalance = localStorage.getItem(CACHE_KEYS.tokenBalance);
 
     if (cachedWallet) {
       setWalletAddress(cachedWallet);
       setWalletStatus("Cached wallet found. Reconnect to refresh live data.");
     }
 
-    if (cachedChapterStatus) {
-      setChapterStatus(cachedChapterStatus);
+    if (cachedUnlockedCount) {
+      setUnlockedCount(cachedUnlockedCount);
     }
 
     if (cachedTxHash) {
       setTxHash(cachedTxHash);
       setTxStatus("Loaded last transaction from cache.");
+    }
+
+    if (cachedTokenBalance) {
+      setTokenBalance(cachedTokenBalance);
+    }
+  };
+
+  const loadContractsConfig = async () => {
+    try {
+      const response = await fetch("/contracts.json");
+      if (!response.ok) {
+        throw new Error("contracts.json not found");
+      }
+
+      const data = await response.json();
+
+      setChapterContractId((data.chapter_contract_id || "").trim());
+      setTokenContractId((data.token_contract_id || "").trim());
+      setContractsLoaded(true);
+    } catch (error) {
+      console.error("Failed to load contracts config:", error);
+      showError(
+        "Config Load Failed",
+        "Could not load contract addresses from contracts.json."
+      );
+    }
+  };
+
+  async function simulateContractCall(contractId, functionName, args, source) {
+    const account = await rpcServer.getAccount(source);
+
+    const tx = new StellarSDK.TransactionBuilder(account, {
+      fee: StellarSDK.BASE_FEE,
+      networkPassphrase: StellarSDK.Networks.TESTNET,
+    })
+      .addOperation(
+        StellarSDK.Operation.invokeContractFunction({
+          contract: contractId,
+          function: functionName,
+          args,
+        })
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await rpcServer.prepareTransaction(tx);
+    const response = await rpcServer.simulateTransaction(prepared);
+
+    if (response.result && response.result.retval) {
+      return StellarSDK.scValToNative(response.result.retval);
+    }
+
+    return null;
+  }
+
+  async function signedInvoke(contractId, functionName, args) {
+    const account = await rpcServer.getAccount(walletAddress);
+
+    const tx = new StellarSDK.TransactionBuilder(account, {
+      fee: StellarSDK.BASE_FEE,
+      networkPassphrase: StellarSDK.Networks.TESTNET,
+    })
+      .addOperation(
+        StellarSDK.Operation.invokeContractFunction({
+          contract: contractId,
+          function: functionName,
+          args,
+        })
+      )
+      .setTimeout(30)
+      .build();
+
+    const prepared = await rpcServer.prepareTransaction(tx);
+
+    const signed = await signTransaction(prepared.toXDR(), {
+      networkPassphrase: StellarSDK.Networks.TESTNET,
+      address: walletAddress,
+    });
+
+    if (signed.error || !signed.signedTxXdr) {
+      throw new Error("Transaction signing was cancelled or rejected.");
+    }
+
+    const signedTransaction = StellarSDK.TransactionBuilder.fromXDR(
+      signed.signedTxXdr,
+      StellarSDK.Networks.TESTNET
+    );
+
+    const sendResponse = await rpcServer.sendTransaction(signedTransaction);
+
+    if (!sendResponse.hash) {
+      throw new Error("No transaction hash returned.");
+    }
+
+    setTxHash(sendResponse.hash);
+    saveCache(CACHE_KEYS.txHash, sendResponse.hash);
+
+    while (true) {
+      const getResponse = await rpcServer.getTransaction(sendResponse.hash);
+
+      if (getResponse.status === "SUCCESS") {
+        return sendResponse.hash;
+      }
+
+      if (getResponse.status === "FAILED") {
+        throw new Error("Transaction failed on testnet.");
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+  }
+
+  const readUnlockedCount = async (addressToCheck = walletAddress) => {
+    if (!addressToCheck) return;
+    if (!chapterContractId) {
+      showError("Missing Config", "Chapter contract address is not loaded yet.");
+      return;
+    }
+
+    try {
+      setIsLoadingStatus(true);
+
+      const count = await simulateContractCall(
+        chapterContractId,
+        "get_unlocked_count",
+        [StellarSDK.nativeToScVal(addressToCheck, { type: "address" })],
+        addressToCheck
+      );
+
+      const normalized = String(count ?? 0).replace(/n$/, "");
+      setUnlockedCount(normalized);
+      saveCache(CACHE_KEYS.unlockedCount, normalized);
+    } catch (error) {
+      console.error(error);
+      showError("Read Failed", "Failed to load unlocked chapter count.");
+    } finally {
+      setIsLoadingStatus(false);
+    }
+  };
+
+  const readPricePerChapter = async (addressToCheck = walletAddress) => {
+    if (!addressToCheck) return;
+    if (!chapterContractId) return;
+
+    try {
+      const price = await simulateContractCall(
+        chapterContractId,
+        "get_price_per_chapter",
+        [],
+        addressToCheck
+      );
+      setPricePerChapter(String(price ?? "...").replace(/n$/, ""));
+    } catch (error) {
+      console.error(error);
+      setPricePerChapter("...");
+    }
+  };
+
+  const readTokenBalance = async (addressToCheck = walletAddress) => {
+    if (!addressToCheck) return;
+    if (!tokenContractId) {
+      showError("Missing Config", "Coins contract address is not loaded yet.");
+      return;
+    }
+
+    try {
+      const balance = await simulateContractCall(
+        tokenContractId,
+        "balance",
+        [StellarSDK.nativeToScVal(addressToCheck, { type: "address" })],
+        addressToCheck
+      );
+
+      const normalized = String(balance ?? 0).replace(/n$/, "");
+      setTokenBalance(normalized);
+      saveCache(CACHE_KEYS.tokenBalance, normalized);
+    } catch (error) {
+      console.error(error);
+      setTokenBalance("0");
     }
   };
 
@@ -99,21 +289,9 @@ function App() {
 
       const networkResult = await getNetwork();
 
-      if (networkResult.error) {
-        setWalletStatus("Could not detect wallet network.");
-        showError(
-          "Network Error",
-          "Could not read Freighter network. Please open Freighter and try again."
-        );
-        return;
-      }
-
-      if (networkResult.network !== "TESTNET") {
+      if (networkResult.error || networkResult.network !== "TESTNET") {
         setWalletStatus("Wrong network.");
-        showError(
-          "Wrong Network",
-          "Please switch Freighter wallet to TESTNET."
-        );
+        showError("Wrong Network", "Please switch Freighter to TESTNET.");
         return;
       }
 
@@ -123,10 +301,7 @@ function App() {
 
       if (addressResult.error || !addressResult.address) {
         setWalletStatus("Could not get wallet address.");
-        showError(
-          "Connection Failed",
-          "Wallet connection failed. Please try again."
-        );
+        showError("Connection Failed", "Wallet connection failed.");
         return;
       }
 
@@ -137,14 +312,18 @@ function App() {
       setWalletStatus("Wallet connected successfully.");
       saveCache(CACHE_KEYS.walletAddress, userAddress);
 
-      await readChapterStatus(userAddress);
+      if (!contractsLoaded) {
+        await loadContractsConfig();
+      }
+
+      await Promise.all([
+        readUnlockedCount(userAddress),
+        readTokenBalance(userAddress),
+        readPricePerChapter(userAddress),
+      ]);
     } catch (error) {
-      console.error("Connect wallet error:", error);
-      setWalletStatus("Wallet connection failed.");
-      showError(
-        "Unexpected Error",
-        "Something went wrong while connecting wallet."
-      );
+      console.error(error);
+      showError("Unexpected Error", "Something went wrong while connecting.");
     } finally {
       setIsConnecting(false);
     }
@@ -154,188 +333,97 @@ function App() {
     setWalletAddress("");
     setIsWalletConnected(false);
     setWalletStatus("Wallet disconnected.");
-    setChapterStatus("Unknown");
+    setUnlockedCount("0");
+    setPricePerChapter("...");
+    setTokenBalance("0");
+    setQuantity("1");
     setTxStatus("No transaction yet.");
     setTxHash("");
     setErrorMessage("");
     setErrorType("");
 
     removeCache(CACHE_KEYS.walletAddress);
-    removeCache(CACHE_KEYS.chapterStatus);
+    removeCache(CACHE_KEYS.unlockedCount);
     removeCache(CACHE_KEYS.txHash);
+    removeCache(CACHE_KEYS.tokenBalance);
   };
 
-  const readChapterStatus = async (addressToCheck = walletAddress) => {
+  const handleClaimCoins = async () => {
     try {
-      if (!addressToCheck) {
-        showError(
-          "Wallet Not Connected",
-          "Please connect your wallet before checking chapter status."
-        );
+      clearMessages();
+      setIsClaiming(true);
+      setTxStatus("Preparing demo Coins claim...");
+
+      if (!walletAddress) {
+        showError("Wallet Not Connected", "Please connect your wallet first.");
         return;
       }
 
-      setIsLoadingStatus(true);
-      clearMessages();
-
-      const account = await rpcServer.getAccount(addressToCheck);
-
-      const transaction = new StellarSDK.TransactionBuilder(account, {
-        fee: StellarSDK.BASE_FEE,
-        networkPassphrase: StellarSDK.Networks.TESTNET,
-      })
-        .addOperation(
-          StellarSDK.Operation.invokeContractFunction({
-            contract: CONTRACT_ID,
-            function: "is_unlocked",
-            args: [StellarSDK.Address.fromString(addressToCheck).toScVal()],
-          })
-        )
-        .setTimeout(30)
-        .build();
-
-      const prepared = await rpcServer.prepareTransaction(transaction);
-      const response = await rpcServer.simulateTransaction(prepared);
-
-      if (response.result && response.result.retval) {
-        const value = StellarSDK.scValToNative(response.result.retval);
-        const normalizedStatus = value ? "Unlocked" : "Locked";
-        setChapterStatus(normalizedStatus);
-        saveCache(CACHE_KEYS.chapterStatus, normalizedStatus);
-      } else {
-        setChapterStatus("Unknown");
-        showError(
-          "Read Failed",
-          "Could not read chapter status from contract."
-        );
+      if (!tokenContractId) {
+        showError("Missing Config", "Coins contract address is not loaded yet.");
+        return;
       }
+
+      await signedInvoke(tokenContractId, "faucet", [
+        StellarSDK.nativeToScVal(walletAddress, { type: "address" }),
+      ]);
+
+      setTxStatus("Demo Coins claimed successfully.");
+      await readTokenBalance(walletAddress);
     } catch (error) {
-      console.error("Read contract error:", error);
-      setChapterStatus("Unknown");
-      showError("Read Failed", "Failed to load chapter status.");
+      console.error("Claim error full:", error);
+      console.error("Claim error message:", error?.message);
+      showError(
+        "Claim Failed",
+        error?.message || JSON.stringify(error) || "Could not claim demo Coins."
+      );
+      setTxStatus("Claim failed.");
     } finally {
-      setIsLoadingStatus(false);
+      setIsClaiming(false);
     }
   };
 
-  const handleUnlockChapter = async () => {
+  const handleUnlockChapters = async () => {
     try {
       clearMessages();
       setTxStatus("Preparing unlock transaction...");
       setIsUnlocking(true);
 
-      if (!isWalletConnected || !walletAddress) {
+      if (!walletAddress) {
+        showError("Wallet Not Connected", "Please connect your wallet first.");
+        return;
+      }
+
+      if (!chapterContractId) {
+        showError("Missing Config", "Chapter contract address is not loaded yet.");
+        return;
+      }
+
+      const quantityNumber = Number(quantity);
+
+      if (!Number.isInteger(quantityNumber) || quantityNumber <= 0) {
         showError(
-          "Wallet Not Connected",
-          "Please connect your wallet before unlocking a chapter."
+          "Invalid Quantity",
+          "Please enter a valid number of chapters to unlock."
         );
         setTxStatus("Transaction blocked.");
         return;
       }
 
-      const networkResult = await getNetwork();
+      await signedInvoke(chapterContractId, "unlock_with_payment", [
+        StellarSDK.nativeToScVal(walletAddress, { type: "address" }),
+        StellarSDK.nativeToScVal(quantityNumber, { type: "u32" }),
+      ]);
 
-      if (networkResult.error || networkResult.network !== "TESTNET") {
-        showError(
-          "Wrong Network",
-          "Please switch Freighter wallet to TESTNET before signing."
-        );
-        setTxStatus("Transaction blocked.");
-        return;
-      }
-
-      if (chapterStatus === "Unlocked") {
-        showError(
-          "Already Unlocked",
-          "This chapter has already been unlocked for this wallet."
-        );
-        setTxStatus("Transaction blocked.");
-        return;
-      }
-
-      const account = await rpcServer.getAccount(walletAddress);
-
-      const transaction = new StellarSDK.TransactionBuilder(account, {
-        fee: StellarSDK.BASE_FEE,
-        networkPassphrase: StellarSDK.Networks.TESTNET,
-      })
-        .addOperation(
-          StellarSDK.Operation.invokeContractFunction({
-            contract: CONTRACT_ID,
-            function: "unlock",
-            args: [StellarSDK.Address.fromString(walletAddress).toScVal()],
-          })
-        )
-        .setTimeout(30)
-        .build();
-
-      const prepared = await rpcServer.prepareTransaction(transaction);
-
-      setTxStatus("Waiting for wallet signature...");
-
-      const signed = await signTransaction(prepared.toXDR(), {
-        networkPassphrase: StellarSDK.Networks.TESTNET,
-        address: walletAddress,
-      });
-
-      if (signed.error || !signed.signedTxXdr) {
-        showError(
-          "Signature Rejected",
-          "Transaction signing was cancelled or rejected by the user."
-        );
-        setTxStatus("Transaction failed.");
-        return;
-      }
-
-      const signedTransaction = StellarSDK.TransactionBuilder.fromXDR(
-        signed.signedTxXdr,
-        StellarSDK.Networks.TESTNET
-      );
-
-      setTxStatus("Submitting transaction to network...");
-
-      const sendResponse = await rpcServer.sendTransaction(signedTransaction);
-
-      if (!sendResponse.hash) {
-        showError(
-          "Missing Transaction Hash",
-          "The network did not return a transaction hash."
-        );
-        setTxStatus("Transaction failed.");
-        return;
-      }
-
-      setTxHash(sendResponse.hash);
-      saveCache(CACHE_KEYS.txHash, sendResponse.hash);
-
-      setTxStatus("Transaction submitted. Waiting for confirmation...");
-
-      while (true) {
-        const getResponse = await rpcServer.getTransaction(sendResponse.hash);
-
-        if (getResponse.status === "SUCCESS") {
-          setTxStatus("Unlock transaction successful.");
-          await readChapterStatus(walletAddress);
-          break;
-        }
-
-        if (getResponse.status === "FAILED") {
-          showError(
-            "Contract Call Failed",
-            "The contract call failed on testnet."
-          );
-          setTxStatus("Unlock transaction failed.");
-          break;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-      }
+      setTxStatus("Unlock transaction successful.");
+      await Promise.all([
+        readUnlockedCount(walletAddress),
+        readTokenBalance(walletAddress),
+      ]);
     } catch (error) {
-      console.error("Unlock contract error:", error);
-      const message =
-        error?.message || "Something went wrong while unlocking the chapter.";
-      showError("Unexpected Error", message);
-      setTxStatus("Transaction failed.");
+      console.error(error);
+      showError("Unlock Failed", error.message || "Could not unlock chapters.");
+      setTxStatus("Unlock failed.");
     } finally {
       setIsUnlocking(false);
     }
@@ -353,18 +441,32 @@ function App() {
 
   useEffect(() => {
     loadCachedData();
+    loadContractsConfig();
+
+    const onResize = () => {
+      setIsMobile(window.innerWidth < 900);
+    };
+
+    onResize();
+    window.addEventListener("resize", onResize);
+
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const chapterBadgeStyle =
-    chapterStatus === "Unlocked"
-      ? styles.heroStatusSuccess
-      : chapterStatus === "Locked"
-      ? styles.heroStatusWarning
-      : styles.heroStatusNeutral;
+  const quantityNumber =
+    Number.isInteger(Number(quantity)) && Number(quantity) > 0
+      ? Number(quantity)
+      : 0;
 
-  const walletBadgeStyle = isWalletConnected
-    ? styles.successBadgeSmall
-    : styles.neutralBadgeSmall;
+  const numericPrice =
+    pricePerChapter !== "..." ? Number(String(pricePerChapter).replace(/n$/, "")) : 0;
+
+  const totalPrice = quantityNumber > 0 ? numericPrice * quantityNumber : 0;
+
+  const unlockedCountNumber = Number(String(unlockedCount).replace(/n$/, "")) || 0;
+
+  const accessBadgeStyle =
+    unlockedCountNumber > 0 ? styles.heroStatusSuccess : styles.heroStatusWarning;
 
   return (
     <div style={styles.page}>
@@ -372,74 +474,110 @@ function App() {
         <section style={styles.hero}>
           <div style={styles.heroGlow} />
           <div style={styles.heroIntro}>
-            <p style={styles.eyebrow}>STELLAR MINI-DAPP</p>
-            <h1 style={styles.title}>Stellar Chapter Unlock</h1>
+            <p style={styles.eyebrow}>STELLAR LEVEL 4 MINI-DAPP</p>
+            <h1 style={styles.title}>Bulk Chapter Unlock With Coins</h1>
             <p style={styles.subtitle}>
-              Connect your wallet, read contract state, and unlock a chapter
-              through a deployed Stellar smart contract on testnet.
+              Choose how many chapters you want to unlock, pay once with Coins,
+              and unlock multiple chapters in a single transaction.
             </p>
           </div>
 
-          <div style={styles.heroMainCard}>
+          <div
+            style={{
+              ...styles.heroMainCard,
+              gridTemplateColumns: isMobile ? "1fr" : "1.35fr 0.85fr",
+            }}
+          >
             <div style={styles.heroMainLeft}>
               <div style={styles.heroMetaRow}>
                 <span style={styles.livePill}>⚡ Live on Testnet</span>
-                <span style={chapterBadgeStyle}>
-                  {chapterStatus === "Unlocked"
-                    ? "🔓 Unlocked"
-                    : chapterStatus === "Locked"
-                    ? "🔒 Locked"
-                    : "⏳ Unknown"}
+                <span style={accessBadgeStyle}>
+                  {unlockedCountNumber > 0
+                    ? `📖 ${unlockedCountNumber} Chapters Unlocked`
+                    : "🔒 No Chapters Unlocked"}
                 </span>
               </div>
 
-              <h2 style={styles.heroCardTitle}>Unlock Chapter Access</h2>
+              <h2 style={styles.heroCardTitle}>Unlock Multiple Chapters</h2>
               <p style={styles.heroCardDesc}>
-                This is the main action of the mini-dApp. Read the latest
-                chapter state from the contract and unlock access with your
-                connected wallet.
+                Each chapter costs 5 Coins. Select how many chapters you want to
+                unlock, and the app will calculate the total price automatically.
               </p>
 
               <div style={styles.heroStats}>
                 <div style={styles.heroStatBox}>
-                  <div style={styles.heroStatLabel}>Smart Contract</div>
+                  <div style={styles.heroStatLabel}>Chapter Contract</div>
                   <div style={styles.heroStatValue}>
-                    {shortenMiddle(CONTRACT_ID, 10, 8)}
+                    {contractsLoaded
+                      ? shortenMiddle(chapterContractId, 10, 8)
+                      : "Loading..."}
                   </div>
                 </div>
 
                 <div style={styles.heroStatBox}>
-                  <div style={styles.heroStatLabel}>Current State</div>
-                  <div style={styles.heroStatValueBig}>
-                    {isLoadingStatus ? "Loading..." : chapterStatus}
+                  <div style={styles.heroStatLabel}>Coins Contract</div>
+                  <div style={styles.heroStatValue}>
+                    {contractsLoaded
+                      ? shortenMiddle(tokenContractId, 10, 8)
+                      : "Loading..."}
                   </div>
+                </div>
+
+                <div style={styles.heroStatBox}>
+                  <div style={styles.heroStatLabel}>Price Per Chapter</div>
+                  <div style={styles.heroStatValueBig}>{pricePerChapter} Coins</div>
+                </div>
+
+                <div style={styles.heroStatBox}>
+                  <div style={styles.heroStatLabel}>Your Coins Balance</div>
+                  <div style={styles.heroStatValueBig}>{tokenBalance}</div>
+                </div>
+
+                <div style={styles.heroStatBox}>
+                  <div style={styles.heroStatLabel}>Chapters To Unlock</div>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    style={styles.numberInput}
+                  />
+                </div>
+
+                <div style={styles.heroStatBox}>
+                  <div style={styles.heroStatLabel}>Total Price</div>
+                  <div style={styles.heroStatValueBig}>{totalPrice} Coins</div>
                 </div>
               </div>
 
               <div style={styles.buttonRow}>
                 <button
                   style={styles.ghostButton}
-                  onClick={() => readChapterStatus(walletAddress)}
-                  disabled={isLoadingStatus}
+                  onClick={() => {
+                    readUnlockedCount(walletAddress);
+                    readTokenBalance(walletAddress);
+                    readPricePerChapter(walletAddress);
+                  }}
+                  disabled={isLoadingStatus || !contractsLoaded}
                 >
                   {isLoadingStatus ? "Refreshing..." : "Refresh Status"}
                 </button>
 
                 <button
-                  style={styles.primarySuccessButton}
-                  onClick={handleUnlockChapter}
-                  disabled={isUnlocking}
+                  style={styles.primaryButton}
+                  onClick={handleClaimCoins}
+                  disabled={isClaiming || !contractsLoaded}
                 >
-                  {isUnlocking ? "Unlocking..." : "Unlock Chapter"}
+                  {isClaiming ? "Claiming..." : "Claim Demo Coins"}
                 </button>
 
                 <button
-                  style={styles.secondaryButton}
-                  onClick={() =>
-                    copyText(CONTRACT_ID, "Contract address copied.")
-                  }
+                  style={styles.primarySuccessButton}
+                  onClick={handleUnlockChapters}
+                  disabled={isUnlocking || !contractsLoaded}
                 >
-                  Copy Contract
+                  {isUnlocking ? "Unlocking..." : "Unlock Chapters"}
                 </button>
               </div>
             </div>
@@ -474,7 +612,12 @@ function App() {
           </div>
         )}
 
-        <div style={styles.bottomGrid}>
+        <div
+          style={{
+            ...styles.bottomGrid,
+            gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(320px, 1fr))",
+          }}
+        >
           <section style={styles.card}>
             <div style={styles.cardHeader}>
               <div>
@@ -483,7 +626,13 @@ function App() {
                   Connect your Freighter wallet and manage session state.
                 </p>
               </div>
-              <span style={walletBadgeStyle}>
+              <span
+                style={
+                  isWalletConnected
+                    ? styles.successBadgeSmall
+                    : styles.neutralBadgeSmall
+                }
+              >
                 {isWalletConnected ? "Connected" : "Disconnected"}
               </span>
             </div>
@@ -536,10 +685,10 @@ function App() {
               <div>
                 <h2 style={styles.cardTitle}>⚡ Activity</h2>
                 <p style={styles.cardDesc}>
-                  A quick summary of the most recent on-chain interaction.
+                  A quick summary of wallet, balance, quantity, and unlock flow.
                 </p>
               </div>
-              <span style={styles.liveBadge}>Live Status</span>
+              <span style={styles.liveBadge}>Bulk Unlock Flow</span>
             </div>
 
             <div style={styles.timeline}>
@@ -554,8 +703,28 @@ function App() {
               <div style={styles.timelineItem}>
                 <div style={styles.timelineDot} />
                 <div>
-                  <div style={styles.timelineTitle}>Chapter State</div>
-                  <div style={styles.timelineText}>{chapterStatus}</div>
+                  <div style={styles.timelineTitle}>Coins Balance</div>
+                  <div style={styles.timelineText}>{tokenBalance} Coins</div>
+                </div>
+              </div>
+
+              <div style={styles.timelineItem}>
+                <div style={styles.timelineDot} />
+                <div>
+                  <div style={styles.timelineTitle}>Selected Quantity</div>
+                  <div style={styles.timelineText}>
+                    {quantityNumber || 0} chapter(s)
+                  </div>
+                </div>
+              </div>
+
+              <div style={styles.timelineItem}>
+                <div style={styles.timelineDot} />
+                <div>
+                  <div style={styles.timelineTitle}>Unlocked Chapters</div>
+                  <div style={styles.timelineText}>
+                    {unlockedCountNumber} chapter(s)
+                  </div>
                 </div>
               </div>
 
@@ -590,7 +759,7 @@ const styles = {
     margin: 0,
     background:
       "radial-gradient(circle at top, #132347 0%, #09152d 42%, #050d1d 100%)",
-    padding: "28px",
+    padding: "20px",
     fontFamily: "Arial, sans-serif",
   },
   shell: {
@@ -605,7 +774,7 @@ const styles = {
       "linear-gradient(180deg, rgba(10,24,54,0.94) 0%, rgba(8,17,38,0.94) 100%)",
     border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: "30px",
-    padding: "34px",
+    padding: "28px",
     boxShadow: "0 22px 60px rgba(0,0,0,0.32)",
     marginBottom: "20px",
   },
@@ -637,23 +806,20 @@ const styles = {
   title: {
     margin: "0 0 14px 0",
     color: "#f9fafb",
-    fontSize: "46px",
+    fontSize: "42px",
     lineHeight: 1.1,
   },
   subtitle: {
     margin: "0 auto",
     color: "#cbd5e1",
-    fontSize: "17px",
+    fontSize: "16px",
     lineHeight: 1.8,
     maxWidth: "760px",
   },
   heroMainCard: {
     display: "grid",
-    gridTemplateColumns: "1.35fr 0.85fr",
     gap: "18px",
     alignItems: "stretch",
-    position: "relative",
-    zIndex: 1,
   },
   heroMainLeft: {
     background: "rgba(255,255,255,0.03)",
@@ -701,19 +867,9 @@ const styles = {
     fontSize: "13px",
     fontWeight: "bold",
   },
-  heroStatusNeutral: {
-    display: "inline-block",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    background: "rgba(148,163,184,0.14)",
-    color: "#cbd5e1",
-    border: "1px solid rgba(148,163,184,0.2)",
-    fontSize: "13px",
-    fontWeight: "bold",
-  },
   heroCardTitle: {
     margin: "0 0 10px 0",
-    fontSize: "30px",
+    fontSize: "28px",
     color: "#f8fafc",
   },
   heroCardDesc: {
@@ -752,9 +908,20 @@ const styles = {
     fontWeight: "600",
   },
   heroStatValueBig: {
-    fontSize: "24px",
+    fontSize: "22px",
     color: "#f8fafc",
     fontWeight: "bold",
+  },
+  numberInput: {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: "12px",
+    border: "1px solid rgba(255,255,255,0.1)",
+    background: "#111827",
+    color: "#f9fafb",
+    fontSize: "16px",
+    outline: "none",
+    boxSizing: "border-box",
   },
   miniInfoCard: {
     background: "#0b1730",
@@ -797,7 +964,6 @@ const styles = {
   },
   bottomGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
     gap: "20px",
   },
   card: {
