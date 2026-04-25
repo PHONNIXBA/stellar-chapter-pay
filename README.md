@@ -1,8 +1,8 @@
 # Stellar Chapter Journey
 
-This repository documents my progress through **Level 1**, **Level 2**, and **Level 3** of the Stellar learning path.
+This repository documents my progress through **Level 1**, **Level 2**, **Level 3**, and **Level 4** of the Stellar learning path.
 
-The project started as a simple payment demo on Stellar Testnet, then evolved into a smart contract based chapter unlock mini-dApp.
+The project started as a simple payment demo on Stellar Testnet, then evolved into a smart contract based chapter unlock mini-dApp, and finally into a more product-oriented bulk unlock experience using Coins and inter-contract calls.
 
 ---
 
@@ -17,6 +17,7 @@ To match the learning path requirements, the project was developed in stages:
 - **Level 1:** wallet connection, balance display, and testnet payment flow
 - **Level 2:** smart contract deployment, contract interaction from the frontend, chapter unlock logic, and error handling
 - **Level 3:** a more complete mini-dApp with loading states, basic caching, tests, documentation, live deployment, and a polished final UI
+- **Level 4:** bulk chapter unlock with Coins, inter-contract call logic, responsive design, CI/CD, and a more realistic product payment flow
 
 ---
 
@@ -162,6 +163,124 @@ The project currently includes **5 passing tests**.
 Add your 1-minute demo video link here after recording:
 
 `PASTE_YOUR_DEMO_VIDEO_LINK_HERE`
+
+---
+
+# Level 4 – Bulk Chapter Unlock With Coins
+
+## Goal
+
+Upgrade the project from a single chapter unlock demo into a more realistic mini-dApp where users can unlock **multiple chapters in one transaction** using Coins on Stellar Testnet.
+
+## Level 4 Features
+
+- Bulk chapter unlock flow
+- Coins-based payment model
+- Inter-contract call between chapter contract and Coins contract
+- Demo Coins claim flow
+- Auto-calculated total price based on chapter quantity
+- Auto-loaded contract addresses from `public/contracts.json`
+- Mobile responsive UI
+- GitHub Actions CI/CD
+- Live deployed frontend
+
+## Product Flow
+
+1. User connects wallet
+2. App reads:
+   - price per chapter
+   - current Coins balance
+   - unlocked chapter count
+3. User claims demo Coins
+4. User chooses how many chapters to unlock
+5. App calculates the total price automatically
+6. User confirms payment
+7. Chapters are unlocked in bulk after a successful transaction
+
+## Pricing Model
+
+- **1 chapter = 5 Coins**
+- Users can claim demo Coins for testing
+- Total price is calculated as:
+
+`total price = chapter quantity × 5 Coins`
+
+Examples:
+- 1 chapter = 5 Coins
+- 3 chapters = 15 Coins
+- 10 chapters = 50 Coins
+
+## Level 4 Contracts
+
+### Coins Contract
+`CAGS6PTZUHT7NKIMMYDJPAAHKSWBMEMY22TQX2563JVNHLHJK7NZCT5ZD`
+
+### Chapter Contract
+`CA7XDK3ONNIWEUUWUCOBU2Z4K27CLFOEVMDW774YLELDVGY5HV7D6EKF`
+
+## Level 4 Deployment Evidence
+
+### Token Init Hash
+`e6b97b38a7dbee513feada6cc023ab163f1e1d5e835821cf6179e57dad9c1ee7`
+
+### Chapter Init Hash
+`2c39b7fc63a5f7e49eba4b726da4a6099fe8f3372f75cdfe094859ac900eeb7e`
+
+### Price Per Chapter
+`5 Coins`
+
+## Inter-Contract Call Logic
+
+This version uses two contracts:
+
+- **Coins contract** → manages demo Coins and user balances
+- **Chapter contract** → manages chapter unlock logic and unlocked count
+
+When a user clicks **Unlock Chapters**:
+
+- the frontend calls the chapter contract
+- the chapter contract calls the Coins contract
+- the required Coins amount is transferred
+- if payment succeeds, the unlocked chapter count is increased
+
+This is the main contract interaction flow for Level 4.
+
+## Level 4 Final UI
+
+![Level 4 Final UI](./screenshot/level4-final-ui.png)
+
+## Level 4 Mobile Responsive View
+
+![Level 4 Mobile Responsive](./screenshot/level4-mobile-view.png)
+
+## Level 4 CI/CD
+
+![Level 4 CI Running](./screenshot/level4-ci-running.png)
+
+## Example Successful Flow
+
+A tested successful scenario in this version:
+
+- wallet connected successfully
+- user claimed demo Coins
+- chapter price remained 5 Coins
+- user selected **10 chapters**
+- app calculated total price = **50 Coins**
+- transaction completed successfully
+- unlocked chapter count increased to **10**
+- remaining balance was updated correctly
+
+## Notes
+
+- Contract addresses are automatically loaded from `public/contracts.json`
+- This version is deployed and tested on **Stellar Testnet**
+- The UI is designed to present the product flow clearly on both desktop and mobile
+
+## Demo Video
+
+Add your Level 4 demo video link here after recording:
+
+`PASTE_YOUR_LEVEL4_DEMO_VIDEO_LINK_HERE`
 
 ---
 
