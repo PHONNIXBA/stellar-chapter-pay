@@ -1,8 +1,8 @@
 # Stellar Chapter Journey
 
-This repository documents my progress through **Level 1** and **Level 2** of the Stellar learning path.
+This repository documents my progress through **Level 1**, **Level 2**, and **Level 3** of the Stellar learning path.
 
-The project started as a simple payment demo on Stellar Testnet, then evolved into a smart contract based chapter unlock dApp.
+The project started as a simple payment demo on Stellar Testnet, then evolved into a smart contract based chapter unlock mini-dApp.
 
 ---
 
@@ -16,6 +16,7 @@ To match the learning path requirements, the project was developed in stages:
 
 - **Level 1:** wallet connection, balance display, and testnet payment flow
 - **Level 2:** smart contract deployment, contract interaction from the frontend, chapter unlock logic, and error handling
+- **Level 3:** a more complete mini-dApp with loading states, basic caching, tests, documentation, and live deployment
 
 ---
 
@@ -91,9 +92,7 @@ The frontend handles these error cases:
 - Signature rejected
 - Contract call failed
 
-## Level 2 Suggested Screenshots
-
-If these files exist in your `screenshot` folder, they will show directly on GitHub.
+## Level 2 Screenshots
 
 ### Frontend Success
 ![Frontend Success](./screenshot/level2-frontend-success.png)
@@ -112,6 +111,51 @@ If these files exist in your `screenshot` folder, they will show directly on Git
 
 ### Error - Already Unlocked
 ![Already Unlocked](./screenshot/level2-error-already-unlocked.png)
+
+---
+
+# Level 3 – Stellar Chapter Unlock Mini-dApp
+
+## Goal
+
+Turn the previous project into a more complete end-to-end mini-dApp with better quality, testing, documentation, and deployment.
+
+## Level 3 Features
+
+- Loading states for wallet connection, status refresh, and unlock flow
+- Basic caching with `localStorage`
+- Reusable utility helpers
+- Automated tests with Vitest
+- Live deployed frontend
+- Improved structure for submission and demo
+
+## Live Demo
+
+[Open the live app](https://stellar-chapter-pay.vercel.app/)
+
+## Level 3 Improvements
+
+- Cache wallet address
+- Cache chapter status
+- Cache latest transaction hash
+- Show loading state when connecting wallet
+- Show loading state when refreshing chapter status
+- Show loading state when unlocking chapter
+- Keep error handling from Level 2
+- Add automated tests for cache and chapter helpers
+
+## Test Coverage
+
+The project currently includes **5 passing tests**.
+
+### Test Screenshot
+![Level 3 Test Output](./screenshot/level3-test-output.png)
+
+## Demo Video
+
+Add your 1-minute demo video link here after recording:
+
+`PASTE_YOUR_DEMO_VIDEO_LINK_HERE`
 
 ---
 
