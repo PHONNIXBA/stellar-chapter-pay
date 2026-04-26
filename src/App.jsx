@@ -349,85 +349,132 @@ function App() {
   };
 
   const handleClaimCoins = async () => {
-    try {
-      clearMessages();
-      setIsClaiming(true);
-      setTxStatus("Preparing demo Coins claim...");
+  try {
+    clearMessages();
+    setIsClaiming(true);
+    setTxStatus("Preparing demo Coins claim...");
 
-      if (!walletAddress) {
-        showError("Wallet Not Connected", "Please connect your wallet first.");
-        return;
-      }
+    if (!walletAddress) {
+      showError("Wallet Not Connected", "Please connect your wallet first.");
+      return;
+    }
 
-      if (!tokenContractId) {
-        showError("Missing Config", "Coins contract address is not loaded yet.");
-        return;
-      }
+    if (!tokenContractId) {
+      showError("Missing Config", "Coins contract address is not loaded yet.");
+      return;
+    }
 
-      await signedInvoke(tokenContractId, "faucet", [
-        StellarSDK.nativeToScVal(walletAddress, { type: "address" }),
-      ]);
+    await signedInvoke(tokenContractId, "faucet", [
+      StellarSDK.nativeToScVal(walletAddress, { type: "address" }),
+    ]);
 
-      setTxStatus("Demo Coins claimed successfully.");
-      await readTokenBalance(walletAddress);
-    } catch (error) {
-      console.error("Claim error full:", error);
-      console.error("Claim error message:", error?.message);
+    setTxStatus("Demo Coins claimed successfully.");
+    await readTokenBalance(walletAddress);
+  } catch (error) {
+    console.error("Claim error full:", error);
+    console.error("Claim error message:", error?.message);
+
+    const rawMessage = String(error?.message || "").toLowerCase();
+
+    if (
+      rawMessage.includes("already") ||
+      rawMessage.includes("claimed") ||
+      rawMessage.includes("faucet")
+    ) {
+      showError(
+        "Already Claimed",
+        "You have already claimed your demo Coins with this wallet."
+      );
+      setTxStatus("Demo Coins already claimed.");
+    } else {
       showError(
         "Claim Failed",
-        error?.message || JSON.stringify(error) || "Could not claim demo Coins."
+        "Could not claim demo Coins. Please try again."
       );
       setTxStatus("Claim failed.");
-    } finally {
-      setIsClaiming(false);
     }
-  };
+  } finally {
+    setIsClaiming(false);
+  }
+};
 
   const handleUnlockChapters = async () => {
-    try {
-      clearMessages();
-      setTxStatus("Preparing unlock transaction...");
-      setIsUnlocking(true);
+  try {
+    clearMessages();
+    setTxStatus("Preparing unlock transaction...");
+    setIsUnlocking(true);
 
-      if (!walletAddress) {
-        showError("Wallet Not Connected", "Please connect your wallet first.");
-        return;
-      }
-
-      if (!chapterContractId) {
-        showError("Missing Config", "Chapter contract address is not loaded yet.");
-        return;
-      }
-
-      const quantityNumber = Number(quantity);
-
-      if (!Number.isInteger(quantityNumber) || quantityNumber <= 0) {
-        showError(
-          "Invalid Quantity",
-          "Please enter a valid number of chapters to unlock."
-        );
-        setTxStatus("Transaction blocked.");
-        return;
-      }
-
-      await signedInvoke(chapterContractId, "unlock_with_payment", [
-        StellarSDK.nativeToScVal(walletAddress, { type: "address" }),
-        StellarSDK.nativeToScVal(quantityNumber, { type: "u32" }),
-      ]);
-
-      setTxStatus("Unlock transaction successful.");
-      await Promise.all([
-        readUnlockedCount(walletAddress),
-        readTokenBalance(walletAddress),
-      ]);
-    } catch (error) {
-      console.error(error);
-      showError("Unlock Failed", error.message || "Could not unlock chapters.");
-      setTxStatus("Unlock failed.");
-    } finally {
-      setIsUnlocking(false);
+    if (!walletAddress) {
+      showError("Wallet Not Connected", "Please connect your wallet first.");
+      return;
     }
-  };
+
+    if (!chapterContractId) {
+      showError("Missing Config", "Chapter contract address is not loaded yet.");
+      return;
+    }
+
+    const quantityNumber = Number(quantity);
+
+    if (!Number.isInteger(quantityNumber) || quantityNumber <= 0) {
+      showError(
+        "Invalid Quantity",
+        "Please enter a valid number of chapters to unlock."
+      );
+      setTxStatus("Transaction blocked.");
+      return;
+    }
+
+    const numericBalance = Number(String(tokenBalance).replace(/n$/, "")) || 0;
+    const numericPrice = Number(String(pricePerChapter).replace(/n$/, "")) || 0;
+    const totalNeeded = quantityNumber * numericPrice;
+
+    if (numericBalance < totalNeeded) {
+      showError(
+        "Insufficient Coins",
+        "You do not have enough Coins to unlock this number of chapters."
+      );
+      setTxStatus("Unlock blocked: not enough Coins.");
+      return;
+    }
+
+    await signedInvoke(chapterContractId, "unlock_with_payment", [
+      StellarSDK.nativeToScVal(walletAddress, { type: "address" }),
+      StellarSDK.nativeToScVal(quantityNumber, { type: "u32" }),
+    ]);
+
+    setTxStatus("Unlock transaction successful.");
+    await Promise.all([
+      readUnlockedCount(walletAddress),
+      readTokenBalance(walletAddress),
+    ]);
+  } catch (error) {
+    console.error("Unlock error full:", error);
+    console.error("Unlock error message:", error?.message);
+
+    const rawMessage = String(error?.message || "").toLowerCase();
+
+    if (
+      rawMessage.includes("insufficient") ||
+      rawMessage.includes("balance") ||
+      rawMessage.includes("transfer")
+    ) {
+      showError(
+        "Insufficient Coins",
+        "You do not have enough Coins to unlock this number of chapters."
+      );
+      setTxStatus("Unlock failed: insufficient Coins.");
+    } else {
+      showError(
+        "Unlock Failed",
+        "Could not unlock chapters. Please try again."
+      );
+      setTxStatus("Unlock failed.");
+    }
+  } finally {
+    setIsUnlocking(false);
+  }
+};
 
   const copyText = async (value, successMessage) => {
     if (!value) return;
