@@ -1,7 +1,39 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 
-// https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
-})
+  plugins: [
+    react(),
+  ],
+
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "react-vendor",
+              test:
+                /node_modules[\\/]react/,
+              maxSize: 300000,
+              priority: 30,
+            },
+            {
+              name: "stellar-vendor",
+              test:
+                /node_modules[\\/]@stellar/,
+              maxSize: 450000,
+              priority: 20,
+            },
+            {
+              name: "vendor",
+              test: /node_modules/,
+              maxSize: 400000,
+              priority: 10,
+            },
+          ],
+        },
+      },
+    },
+  },
+});

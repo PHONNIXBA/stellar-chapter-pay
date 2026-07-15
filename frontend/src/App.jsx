@@ -1,549 +1,363 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import {
   getAddress,
   getNetwork,
   isConnected,
   setAllowed,
-  signTransaction,
 } from "@stellar/freighter-api";
-import * as StellarSDK from "@stellar/stellar-sdk";
 
-const RPC_URL = "https://soroban-testnet.stellar.org:443";
+import "./App.css";
 
-const CACHE_KEYS = {
-  walletAddress: "stellar_chapter_wallet_address",
-  unlockedCount: "stellar_unlocked_count",
-  txHash: "stellar_chapter_tx_hash",
-  tokenBalance: "stellar_chapter_token_balance",
-};
+import {
+  createTransactionExplorerUrl,
+  hasCompleteContractConfig,
+  loadContractConfig,
+  STELLAR_NETWORK,
+} from "./contractConfig";
 
-function shortenMiddle(value, start = 8, end = 6) {
-  if (!value || value.length <= start + end + 3) return value;
-  return `${value.slice(0, start)}...${value.slice(-end)}`;
+import {
+  claimDemoCoins,
+  createRpcServer,
+  readPricePerChapter,
+  readTokenBalance,
+  readUnlockedCount,
+  unlockChapters,
+} from "./services/contract";
+
+import {
+  readLocalAnalyticsEvents,
+  trackAnalyticsEvent,
+} from "./services/analytics";
+
+import {
+  CACHE_KEYS,
+  canUnlockChapters,
+  clearApplicationCache,
+  loadCache,
+  saveCache,
+} from "./utils/cache";
+
+function shortenMiddle(
+  value,
+  start = 10,
+  end = 8
+) {
+  if (!value) {
+    return "";
+  }
+
+  if (
+    value.length <=
+    start + end + 3
+  ) {
+    return value;
+  }
+
+  return (
+    `${value.slice(0, start)}` +
+    `...${value.slice(-end)}`
+  );
+}
+
+function formatTimestamp(value) {
+  if (!value) {
+    return "Unknown time";
+  }
+
+  return new Date(value)
+    .toLocaleString();
+}
+
+function classifyTransactionError(error) {
+  const message = String(
+    error?.message || ""
+  ).toLowerCase();
+
+  if (
+    message.includes("reject") ||
+    message.includes("cancel")
+  ) {
+    return {
+      type: "Transaction Rejected",
+      message:
+        "The transaction was cancelled in Freighter.",
+    };
+  }
+
+  if (
+    message.includes("insufficient") ||
+    message.includes("balance")
+  ) {
+    return {
+      type: "Insufficient Coins",
+      message:
+        "The wallet does not have enough Chapter Coin.",
+    };
+  }
+
+  if (
+    message.includes("already") ||
+    message.includes("claimed")
+  ) {
+    return {
+      type: "Already Claimed",
+      message:
+        "This wallet has already claimed its demo Chapter Coin.",
+    };
+  }
+
+  if (
+    message.includes("timeout")
+  ) {
+    return {
+      type: "Confirmation Timeout",
+      message:
+        "The transaction was submitted but confirmation took too long.",
+    };
+  }
+
+  return {
+    type: "Transaction Failed",
+    message:
+      "The Stellar transaction could not be completed.",
+  };
 }
 
 function App() {
-  const rpcServer = useMemo(() => new StellarSDK.rpc.Server(RPC_URL), []);
-  const [isMobile, setIsMobile] = useState(
-    typeof window !== "undefined" ? window.innerWidth < 900 : false
+  const rpcServer = useMemo(
+    () => createRpcServer(),
+    []
   );
 
-  const [chapterContractId, setChapterContractId] = useState("");
-  const [tokenContractId, setTokenContractId] = useState("");
-  const [contractsLoaded, setContractsLoaded] = useState(false);
+  const [
+    chapterContractId,
+    setChapterContractId,
+  ] = useState("");
 
-  const [walletAddress, setWalletAddress] = useState(() => {
-    if (typeof window === "undefined") {
-      return "";
-    }
+  const [
+    tokenContractId,
+    setTokenContractId,
+  ] = useState("");
 
-    return (
-      window.localStorage.getItem(CACHE_KEYS.walletAddress) || ""
-    );
-  });
-  const [walletStatus, setWalletStatus] = useState(() => {
-    if (typeof window === "undefined") {
-      return "Wallet not connected";
-    }
+  const [
+    configError,
+    setConfigError,
+  ] = useState("");
 
-    const cachedWallet = window.localStorage.getItem(
-      CACHE_KEYS.walletAddress
-    );
+  const [
+    walletAddress,
+    setWalletAddress,
+  ] = useState(() =>
+    loadCache(
+      CACHE_KEYS.walletAddress,
+      ""
+    )
+  );
 
-    return cachedWallet
-      ? "Cached wallet found. Reconnect to refresh live data."
-      : "Wallet not connected";
-  });
-  const [isWalletConnected, setIsWalletConnected] = useState(false);
+  const [
+    walletStatus,
+    setWalletStatus,
+  ] = useState(() =>
+    loadCache(
+      CACHE_KEYS.walletAddress,
+      ""
+    )
+      ? "Cached wallet found. Reconnect for live data."
+      : "Wallet not connected."
+  );
 
-  const [unlockedCount, setUnlockedCount] = useState(() => {
-    if (typeof window === "undefined") {
-      return "0";
-    }
+  const [
+    isWalletConnected,
+    setIsWalletConnected,
+  ] = useState(false);
 
-    return (
-      window.localStorage.getItem(CACHE_KEYS.unlockedCount) || "0"
-    );
-  });
-  const [pricePerChapter, setPricePerChapter] = useState("...");
-  const [tokenBalance, setTokenBalance] = useState(() => {
-    if (typeof window === "undefined") {
-      return "0";
-    }
+  const [
+    unlockedCount,
+    setUnlockedCount,
+  ] = useState(() =>
+    loadCache(
+      CACHE_KEYS.unlockedCount,
+      "0"
+    )
+  );
 
-    return (
-      window.localStorage.getItem(CACHE_KEYS.tokenBalance) || "0"
-    );
-  });
-  const [quantity, setQuantity] = useState("1");
+  const [
+    pricePerChapter,
+    setPricePerChapter,
+  ] = useState("...");
 
-  const [txStatus, setTxStatus] = useState(() => {
-    if (typeof window === "undefined") {
-      return "No transaction yet.";
-    }
+  const [
+    tokenBalance,
+    setTokenBalance,
+  ] = useState(() =>
+    loadCache(
+      CACHE_KEYS.tokenBalance,
+      "0"
+    )
+  );
 
-    const cachedHash = window.localStorage.getItem(
-      CACHE_KEYS.txHash
-    );
+  const [
+    quantity,
+    setQuantity,
+  ] = useState("1");
 
-    return cachedHash
-      ? "Loaded last transaction from cache."
-      : "No transaction yet.";
-  });
-  const [txHash, setTxHash] = useState(() => {
-    if (typeof window === "undefined") {
-      return "";
-    }
+  const [
+    txStatus,
+    setTxStatus,
+  ] = useState(() =>
+    loadCache(
+      CACHE_KEYS.txHash,
+      ""
+    )
+      ? "Loaded the latest transaction from cache."
+      : "No transaction yet."
+  );
 
-    return window.localStorage.getItem(CACHE_KEYS.txHash) || "";
-  });
+  const [
+    txHash,
+    setTxHash,
+  ] = useState(() =>
+    loadCache(
+      CACHE_KEYS.txHash,
+      ""
+    )
+  );
 
-  const [errorMessage, setErrorMessage] = useState("");
-  const [errorType, setErrorType] = useState("");
+  const [
+    errorType,
+    setErrorType,
+  ] = useState("");
 
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(false);
-  const [isUnlocking, setIsUnlocking] = useState(false);
-  const [isClaiming, setIsClaiming] = useState(false);
+  const [
+    errorMessage,
+    setErrorMessage,
+  ] = useState("");
 
-  const clearMessages = () => {
-    setErrorMessage("");
-    setErrorType("");
-  };
+  const [
+    isConnecting,
+    setIsConnecting,
+  ] = useState(false);
 
-  const showError = (type, message) => {
-    setErrorType(type);
-    setErrorMessage(message);
-  };
+  const [
+    isRefreshing,
+    setIsRefreshing,
+  ] = useState(false);
 
-  const saveCache = (key, value) => {
-    localStorage.setItem(key, value);
-  };
+  const [
+    isClaiming,
+    setIsClaiming,
+  ] = useState(false);
 
-  const removeCache = (key) => {
-    localStorage.removeItem(key);
-  };
+  const [
+    isUnlocking,
+    setIsUnlocking,
+  ] = useState(false);
 
-  const loadContractsConfig = async () => {
-    try {
-      const response = await fetch("/contracts.json");
-      if (!response.ok) {
-        throw new Error("contracts.json not found");
-      }
+  const [
+    activityEvents,
+    setActivityEvents,
+  ] = useState(() =>
+    readLocalAnalyticsEvents()
+      .slice(0, 6)
+  );
 
-      const data = await response.json();
-
-      setChapterContractId((data.chapter_contract_id || "").trim());
-      setTokenContractId((data.token_contract_id || "").trim());
-      setContractsLoaded(true);
-    } catch (error) {
-      console.error("Failed to load contracts config:", error);
-      showError(
-        "Config Load Failed",
-        "Could not load contract addresses from contracts.json."
-      );
-    }
-  };
-
-  async function simulateContractCall(contractId, functionName, args, source) {
-    const account = await rpcServer.getAccount(source);
-
-    const tx = new StellarSDK.TransactionBuilder(account, {
-      fee: StellarSDK.BASE_FEE,
-      networkPassphrase: StellarSDK.Networks.TESTNET,
-    })
-      .addOperation(
-        StellarSDK.Operation.invokeContractFunction({
-          contract: contractId,
-          function: functionName,
-          args,
-        })
-      )
-      .setTimeout(30)
-      .build();
-
-    const prepared = await rpcServer.prepareTransaction(tx);
-    const response = await rpcServer.simulateTransaction(prepared);
-
-    if (response.result && response.result.retval) {
-      return StellarSDK.scValToNative(response.result.retval);
-    }
-
-    return null;
-  }
-
-  async function signedInvoke(contractId, functionName, args) {
-    const account = await rpcServer.getAccount(walletAddress);
-
-    const tx = new StellarSDK.TransactionBuilder(account, {
-      fee: StellarSDK.BASE_FEE,
-      networkPassphrase: StellarSDK.Networks.TESTNET,
-    })
-      .addOperation(
-        StellarSDK.Operation.invokeContractFunction({
-          contract: contractId,
-          function: functionName,
-          args,
-        })
-      )
-      .setTimeout(30)
-      .build();
-
-    const prepared = await rpcServer.prepareTransaction(tx);
-
-    const signed = await signTransaction(prepared.toXDR(), {
-      networkPassphrase: StellarSDK.Networks.TESTNET,
-      address: walletAddress,
+  const contractsLoaded =
+    hasCompleteContractConfig({
+      chapterContractId,
+      tokenContractId,
     });
 
-    if (signed.error || !signed.signedTxXdr) {
-      throw new Error("Transaction signing was cancelled or rejected.");
-    }
+  const quantityNumber =
+    Number.isInteger(Number(quantity)) &&
+    Number(quantity) > 0
+      ? Number(quantity)
+      : 0;
 
-    const signedTransaction = StellarSDK.TransactionBuilder.fromXDR(
-      signed.signedTxXdr,
-      StellarSDK.Networks.TESTNET
+  const normalizedPrice =
+    pricePerChapter === "..."
+      ? 0
+      : Number(pricePerChapter) || 0;
+
+  const totalPrice =
+    quantityNumber *
+    normalizedPrice;
+
+  const unlockedCountNumber =
+    Number(unlockedCount) || 0;
+
+  const canPurchase =
+    canUnlockChapters({
+      isWalletConnected,
+      walletAddress,
+      quantity,
+      tokenBalance,
+      pricePerChapter,
+    });
+
+  const explorerUrl =
+    createTransactionExplorerUrl(
+      txHash
     );
 
-    const sendResponse = await rpcServer.sendTransaction(signedTransaction);
+  const clearError = useCallback(
+    () => {
+      setErrorType("");
+      setErrorMessage("");
+    },
+    []
+  );
 
-    if (!sendResponse.hash) {
-      throw new Error("No transaction hash returned.");
-    }
+  const showError = useCallback(
+    (type, message) => {
+      setErrorType(type);
+      setErrorMessage(message);
+    },
+    []
+  );
 
-    setTxHash(sendResponse.hash);
-    saveCache(CACHE_KEYS.txHash, sendResponse.hash);
-
-    while (true) {
-      const getResponse = await rpcServer.getTransaction(sendResponse.hash);
-
-      if (getResponse.status === "SUCCESS") {
-        return sendResponse.hash;
-      }
-
-      if (getResponse.status === "FAILED") {
-        throw new Error("Transaction failed on testnet.");
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-    }
-  }
-
-  const readUnlockedCount = async (addressToCheck = walletAddress) => {
-    if (!addressToCheck) return;
-    if (!chapterContractId) {
-      showError("Missing Config", "Chapter contract address is not loaded yet.");
-      return;
-    }
-
-    try {
-      setIsLoadingStatus(true);
-
-      const count = await simulateContractCall(
-        chapterContractId,
-        "get_unlocked_count",
-        [StellarSDK.nativeToScVal(addressToCheck, { type: "address" })],
-        addressToCheck
+  const recordActivity = useCallback(
+    (eventName, properties = {}) => {
+      trackAnalyticsEvent(
+        eventName,
+        properties
       );
 
-      const normalized = String(count ?? 0).replace(/n$/, "");
-      setUnlockedCount(normalized);
-      saveCache(CACHE_KEYS.unlockedCount, normalized);
-    } catch (error) {
-      console.error(error);
-      showError("Read Failed", "Failed to load unlocked chapter count.");
-    } finally {
-      setIsLoadingStatus(false);
-    }
-  };
-
-  const readPricePerChapter = async (addressToCheck = walletAddress) => {
-    if (!addressToCheck) return;
-    if (!chapterContractId) return;
-
-    try {
-      const price = await simulateContractCall(
-        chapterContractId,
-        "get_price_per_chapter",
-        [],
-        addressToCheck
+      setActivityEvents(
+        readLocalAnalyticsEvents()
+          .slice(0, 6)
       );
-      setPricePerChapter(String(price ?? "...").replace(/n$/, ""));
-    } catch (error) {
-      console.error(error);
-      setPricePerChapter("...");
-    }
-  };
-
-  const readTokenBalance = async (addressToCheck = walletAddress) => {
-    if (!addressToCheck) return;
-    if (!tokenContractId) {
-      showError("Missing Config", "Coins contract address is not loaded yet.");
-      return;
-    }
-
-    try {
-      const balance = await simulateContractCall(
-        tokenContractId,
-        "balance",
-        [StellarSDK.nativeToScVal(addressToCheck, { type: "address" })],
-        addressToCheck
-      );
-
-      const normalized = String(balance ?? 0).replace(/n$/, "");
-      setTokenBalance(normalized);
-      saveCache(CACHE_KEYS.tokenBalance, normalized);
-    } catch (error) {
-      console.error(error);
-      setTokenBalance("0");
-    }
-  };
-
-  const handleConnectWallet = async () => {
-    try {
-      clearMessages();
-      setIsConnecting(true);
-      setWalletStatus("Connecting wallet...");
-
-      const connected = await isConnected();
-
-      if (!connected.isConnected) {
-        setWalletStatus("Wallet not found.");
-        showError(
-          "Wallet Not Found",
-          "Freighter wallet is not installed in this browser."
-        );
-        return;
-      }
-
-      const networkResult = await getNetwork();
-
-      if (networkResult.error || networkResult.network !== "TESTNET") {
-        setWalletStatus("Wrong network.");
-        showError("Wrong Network", "Please switch Freighter to TESTNET.");
-        return;
-      }
-
-      await setAllowed();
-
-      const addressResult = await getAddress();
-
-      if (addressResult.error || !addressResult.address) {
-        setWalletStatus("Could not get wallet address.");
-        showError("Connection Failed", "Wallet connection failed.");
-        return;
-      }
-
-      const userAddress = addressResult.address;
-
-      setWalletAddress(userAddress);
-      setIsWalletConnected(true);
-      setWalletStatus("Wallet connected successfully.");
-      saveCache(CACHE_KEYS.walletAddress, userAddress);
-
-      if (!contractsLoaded) {
-        await loadContractsConfig();
-      }
-
-      await Promise.all([
-        readUnlockedCount(userAddress),
-        readTokenBalance(userAddress),
-        readPricePerChapter(userAddress),
-      ]);
-    } catch (error) {
-      console.error(error);
-      showError("Unexpected Error", "Something went wrong while connecting.");
-    } finally {
-      setIsConnecting(false);
-    }
-  };
-
-  const handleDisconnectWallet = () => {
-    setWalletAddress("");
-    setIsWalletConnected(false);
-    setWalletStatus("Wallet disconnected.");
-    setUnlockedCount("0");
-    setPricePerChapter("...");
-    setTokenBalance("0");
-    setQuantity("1");
-    setTxStatus("No transaction yet.");
-    setTxHash("");
-    setErrorMessage("");
-    setErrorType("");
-
-    removeCache(CACHE_KEYS.walletAddress);
-    removeCache(CACHE_KEYS.unlockedCount);
-    removeCache(CACHE_KEYS.txHash);
-    removeCache(CACHE_KEYS.tokenBalance);
-  };
-
-  const handleClaimCoins = async () => {
-  try {
-    clearMessages();
-    setIsClaiming(true);
-    setTxStatus("Preparing demo Coins claim...");
-
-    if (!walletAddress) {
-      showError("Wallet Not Connected", "Please connect your wallet first.");
-      return;
-    }
-
-    if (!tokenContractId) {
-      showError("Missing Config", "Coins contract address is not loaded yet.");
-      return;
-    }
-
-    await signedInvoke(tokenContractId, "faucet", [
-      StellarSDK.nativeToScVal(walletAddress, { type: "address" }),
-    ]);
-
-    setTxStatus("Demo Coins claimed successfully.");
-    await readTokenBalance(walletAddress);
-  } catch (error) {
-    console.error("Claim error full:", error);
-    console.error("Claim error message:", error?.message);
-
-    const rawMessage = String(error?.message || "").toLowerCase();
-
-    if (
-      rawMessage.includes("already") ||
-      rawMessage.includes("claimed") ||
-      rawMessage.includes("faucet")
-    ) {
-      showError(
-        "Already Claimed",
-        "You have already claimed your demo Coins with this wallet."
-      );
-      setTxStatus("Demo Coins already claimed.");
-    } else {
-      showError(
-        "Claim Failed",
-        "Could not claim demo Coins. Please try again."
-      );
-      setTxStatus("Claim failed.");
-    }
-  } finally {
-    setIsClaiming(false);
-  }
-};
-
-  const handleUnlockChapters = async () => {
-  try {
-    clearMessages();
-    setTxStatus("Preparing unlock transaction...");
-    setIsUnlocking(true);
-
-    if (!walletAddress) {
-      showError("Wallet Not Connected", "Please connect your wallet first.");
-      return;
-    }
-
-    if (!chapterContractId) {
-      showError("Missing Config", "Chapter contract address is not loaded yet.");
-      return;
-    }
-
-    const quantityNumber = Number(quantity);
-
-    if (!Number.isInteger(quantityNumber) || quantityNumber <= 0) {
-      showError(
-        "Invalid Quantity",
-        "Please enter a valid number of chapters to unlock."
-      );
-      setTxStatus("Transaction blocked.");
-      return;
-    }
-
-    const numericBalance = Number(String(tokenBalance).replace(/n$/, "")) || 0;
-    const numericPrice = Number(String(pricePerChapter).replace(/n$/, "")) || 0;
-    const totalNeeded = quantityNumber * numericPrice;
-
-    if (numericBalance < totalNeeded) {
-      showError(
-        "Insufficient Coins",
-        "You do not have enough Coins to unlock this number of chapters."
-      );
-      setTxStatus("Unlock blocked: not enough Coins.");
-      return;
-    }
-
-    await signedInvoke(chapterContractId, "unlock_with_payment", [
-      StellarSDK.nativeToScVal(walletAddress, { type: "address" }),
-      StellarSDK.nativeToScVal(quantityNumber, { type: "u32" }),
-    ]);
-
-    setTxStatus("Unlock transaction successful.");
-    await Promise.all([
-      readUnlockedCount(walletAddress),
-      readTokenBalance(walletAddress),
-    ]);
-  } catch (error) {
-    console.error("Unlock error full:", error);
-    console.error("Unlock error message:", error?.message);
-
-    const rawMessage = String(error?.message || "").toLowerCase();
-
-    if (
-      rawMessage.includes("insufficient") ||
-      rawMessage.includes("balance") ||
-      rawMessage.includes("transfer")
-    ) {
-      showError(
-        "Insufficient Coins",
-        "You do not have enough Coins to unlock this number of chapters."
-      );
-      setTxStatus("Unlock failed: insufficient Coins.");
-    } else {
-      showError(
-        "Unlock Failed",
-        "Could not unlock chapters. Please try again."
-      );
-      setTxStatus("Unlock failed.");
-    }
-  } finally {
-    setIsUnlocking(false);
-  }
-};
-
-  const copyText = async (value, successMessage) => {
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setTxStatus(successMessage);
-    } catch {
-      showError("Copy Failed", "Could not copy this value.");
-    }
-  };
+    },
+    []
+  );
 
   useEffect(() => {
     let isActive = true;
 
-    fetch("/contracts.json")
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("contracts.json not found");
-        }
-
-        return response.json();
-      })
-      .then((data) => {
+    loadContractConfig()
+      .then((config) => {
         if (!isActive) {
           return;
         }
 
         setChapterContractId(
-          (data.chapter_contract_id || "").trim()
+          config.chapterContractId
         );
 
         setTokenContractId(
-          (data.token_contract_id || "").trim()
+          config.tokenContractId
         );
 
-        setContractsLoaded(true);
+        setConfigError("");
       })
       .catch((error) => {
         console.error(
-          "Failed to load contracts config:",
+          "Contract configuration error:",
           error
         );
 
@@ -551,712 +365,1123 @@ function App() {
           return;
         }
 
-        setErrorType("Config Load Failed");
-        setErrorMessage(
-          "Could not load contract addresses from contracts.json."
+        setConfigError(
+          "Contract addresses could not be loaded."
         );
       });
 
-    const onResize = () => {
-      setIsMobile(window.innerWidth < 900);
-    };
-
-    window.addEventListener("resize", onResize);
-
     return () => {
       isActive = false;
-      window.removeEventListener("resize", onResize);
     };
   }, []);
 
-  const quantityNumber =
-    Number.isInteger(Number(quantity)) && Number(quantity) > 0
-      ? Number(quantity)
-      : 0;
+  const refreshAccountData =
+    useCallback(
+      async (
+        address,
+        configOverride = {}
+      ) => {
+        const activeAddress =
+          address || walletAddress;
 
-  const numericPrice =
-    pricePerChapter !== "..." ? Number(String(pricePerChapter).replace(/n$/, "")) : 0;
+        const activeChapterId =
+          configOverride.chapterContractId ||
+          chapterContractId;
 
-  const totalPrice = quantityNumber > 0 ? numericPrice * quantityNumber : 0;
+        const activeTokenId =
+          configOverride.tokenContractId ||
+          tokenContractId;
 
-  const unlockedCountNumber = Number(String(unlockedCount).replace(/n$/, "")) || 0;
+        if (!activeAddress) {
+          showError(
+            "Wallet Not Connected",
+            "Connect Freighter before refreshing account data."
+          );
 
-  const accessBadgeStyle =
-    unlockedCountNumber > 0 ? styles.heroStatusSuccess : styles.heroStatusWarning;
+          return;
+        }
+
+        if (
+          !activeChapterId ||
+          !activeTokenId
+        ) {
+          showError(
+            "Missing Contract Configuration",
+            "The contract addresses have not loaded yet."
+          );
+
+          return;
+        }
+
+        setIsRefreshing(true);
+        clearError();
+
+        try {
+          const [
+            nextUnlockedCount,
+            nextTokenBalance,
+            nextPrice,
+          ] = await Promise.all([
+            readUnlockedCount({
+              server: rpcServer,
+              contractId:
+                activeChapterId,
+              walletAddress:
+                activeAddress,
+            }),
+
+            readTokenBalance({
+              server: rpcServer,
+              contractId:
+                activeTokenId,
+              walletAddress:
+                activeAddress,
+            }),
+
+            readPricePerChapter({
+              server: rpcServer,
+              contractId:
+                activeChapterId,
+              walletAddress:
+                activeAddress,
+            }),
+          ]);
+
+          setUnlockedCount(
+            nextUnlockedCount
+          );
+
+          setTokenBalance(
+            nextTokenBalance
+          );
+
+          setPricePerChapter(
+            nextPrice
+          );
+
+          saveCache(
+            CACHE_KEYS.unlockedCount,
+            nextUnlockedCount
+          );
+
+          saveCache(
+            CACHE_KEYS.tokenBalance,
+            nextTokenBalance
+          );
+
+          recordActivity(
+            "account_refreshed",
+            {
+              walletAddress:
+                activeAddress,
+            }
+          );
+        } catch (error) {
+          console.error(
+            "Account refresh error:",
+            error
+          );
+
+          showError(
+            "Refresh Failed",
+            "The latest contract state could not be loaded."
+          );
+        } finally {
+          setIsRefreshing(false);
+        }
+      },
+      [
+        chapterContractId,
+        clearError,
+        recordActivity,
+        rpcServer,
+        showError,
+        tokenContractId,
+        walletAddress,
+      ]
+    );
+
+  const handleConnectWallet =
+    async () => {
+      setIsConnecting(true);
+      clearError();
+
+      try {
+        setWalletStatus(
+          "Checking Freighter..."
+        );
+
+        const connectionResult =
+          await isConnected();
+
+        if (
+          !connectionResult.isConnected
+        ) {
+          setWalletStatus(
+            "Freighter was not detected."
+          );
+
+          showError(
+            "Wallet Not Found",
+            "Install or enable the Freighter browser extension."
+          );
+
+          return;
+        }
+
+        const networkResult =
+          await getNetwork();
+
+        if (
+          networkResult.error ||
+          networkResult.network !==
+            STELLAR_NETWORK.name
+        ) {
+          setWalletStatus(
+            "Freighter is on the wrong network."
+          );
+
+          showError(
+            "Wrong Network",
+            "Switch Freighter to TESTNET and try again."
+          );
+
+          return;
+        }
+
+        await setAllowed();
+
+        const addressResult =
+          await getAddress();
+
+        if (
+          addressResult.error ||
+          !addressResult.address
+        ) {
+          throw new Error(
+            "Freighter did not return a wallet address."
+          );
+        }
+
+        const nextWalletAddress =
+          addressResult.address;
+
+        let runtimeConfig = {
+          chapterContractId,
+          tokenContractId,
+        };
+
+        if (
+          !hasCompleteContractConfig(
+            runtimeConfig
+          )
+        ) {
+          runtimeConfig =
+            await loadContractConfig();
+
+          setChapterContractId(
+            runtimeConfig.chapterContractId
+          );
+
+          setTokenContractId(
+            runtimeConfig.tokenContractId
+          );
+        }
+
+        setWalletAddress(
+          nextWalletAddress
+        );
+
+        setIsWalletConnected(true);
+
+        setWalletStatus(
+          "Wallet connected on Stellar Testnet."
+        );
+
+        saveCache(
+          CACHE_KEYS.walletAddress,
+          nextWalletAddress
+        );
+
+        recordActivity(
+          "wallet_connected",
+          {
+            walletAddress:
+              nextWalletAddress,
+          }
+        );
+
+        await refreshAccountData(
+          nextWalletAddress,
+          runtimeConfig
+        );
+      } catch (error) {
+        console.error(
+          "Wallet connection error:",
+          error
+        );
+
+        setWalletStatus(
+          "Wallet connection failed."
+        );
+
+        showError(
+          "Connection Failed",
+          "Freighter could not be connected."
+        );
+      } finally {
+        setIsConnecting(false);
+      }
+    };
+
+  const handleDisconnectWallet =
+    () => {
+      clearApplicationCache();
+
+      setWalletAddress("");
+      setWalletStatus(
+        "Wallet disconnected."
+      );
+
+      setIsWalletConnected(false);
+      setUnlockedCount("0");
+      setPricePerChapter("...");
+      setTokenBalance("0");
+      setQuantity("1");
+      setTxHash("");
+      setTxStatus(
+        "No transaction yet."
+      );
+
+      clearError();
+
+      recordActivity(
+        "wallet_disconnected"
+      );
+    };
+
+  const handleClaimCoins =
+    async () => {
+      if (
+        !isWalletConnected ||
+        !walletAddress
+      ) {
+        showError(
+          "Wallet Not Connected",
+          "Connect Freighter before claiming demo Coins."
+        );
+
+        return;
+      }
+
+      if (!tokenContractId) {
+        showError(
+          "Missing Contract Configuration",
+          "The Chapter Token contract address is unavailable."
+        );
+
+        return;
+      }
+
+      setIsClaiming(true);
+      clearError();
+
+      setTxStatus(
+        "Preparing demo Coin claim..."
+      );
+
+      try {
+        await claimDemoCoins({
+          server: rpcServer,
+          contractId:
+            tokenContractId,
+          walletAddress,
+          onSubmitted:
+            (transactionHash) => {
+              setTxHash(
+                transactionHash
+              );
+
+              saveCache(
+                CACHE_KEYS.txHash,
+                transactionHash
+              );
+
+              setTxStatus(
+                "Transaction submitted. Waiting for confirmation..."
+              );
+            },
+        });
+
+        setTxStatus(
+          "Demo Coins claimed successfully."
+        );
+
+        recordActivity(
+          "demo_coins_claimed",
+          { walletAddress }
+        );
+
+        await refreshAccountData(
+          walletAddress
+        );
+      } catch (error) {
+        console.error(
+          "Demo Coin claim error:",
+          error
+        );
+
+        const classifiedError =
+          classifyTransactionError(
+            error
+          );
+
+        showError(
+          classifiedError.type,
+          classifiedError.message
+        );
+
+        setTxStatus(
+          "Demo Coin claim failed."
+        );
+      } finally {
+        setIsClaiming(false);
+      }
+    };
+
+  const handleUnlockChapters =
+    async (event) => {
+      event.preventDefault();
+
+      if (!canPurchase) {
+        showError(
+          "Purchase Not Available",
+          "Check the wallet connection, quantity, price, and Chapter Coin balance."
+        );
+
+        return;
+      }
+
+      if (!chapterContractId) {
+        showError(
+          "Missing Contract Configuration",
+          "The Chapter Payment contract address is unavailable."
+        );
+
+        return;
+      }
+
+      setIsUnlocking(true);
+      clearError();
+
+      setTxStatus(
+        "Preparing chapter purchase..."
+      );
+
+      try {
+        await unlockChapters({
+          server: rpcServer,
+          contractId:
+            chapterContractId,
+          walletAddress,
+          quantity:
+            quantityNumber,
+          onSubmitted:
+            (transactionHash) => {
+              setTxHash(
+                transactionHash
+              );
+
+              saveCache(
+                CACHE_KEYS.txHash,
+                transactionHash
+              );
+
+              setTxStatus(
+                "Transaction submitted. Waiting for confirmation..."
+              );
+            },
+        });
+
+        setTxStatus(
+          `${quantityNumber} chapter(s) unlocked successfully.`
+        );
+
+        recordActivity(
+          "chapters_unlocked",
+          {
+            walletAddress,
+            quantity:
+              quantityNumber,
+            totalPrice,
+          }
+        );
+
+        await refreshAccountData(
+          walletAddress
+        );
+      } catch (error) {
+        console.error(
+          "Chapter purchase error:",
+          error
+        );
+
+        const classifiedError =
+          classifyTransactionError(
+            error
+          );
+
+        showError(
+          classifiedError.type,
+          classifiedError.message
+        );
+
+        setTxStatus(
+          "Chapter purchase failed."
+        );
+      } finally {
+        setIsUnlocking(false);
+      }
+    };
+
+  const copyText =
+    async (value, label) => {
+      if (!value) {
+        return;
+      }
+
+      try {
+        await navigator.clipboard
+          .writeText(value);
+
+        setTxStatus(
+          `${label} copied.`
+        );
+      } catch {
+        showError(
+          "Copy Failed",
+          `${label} could not be copied.`
+        );
+      }
+    };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.shell}>
-        <section style={styles.hero}>
-          <div style={styles.heroGlow} />
-          <div style={styles.heroIntro}>
-            <p style={styles.eyebrow}>STELLAR LEVEL 4 MINI-DAPP</p>
-            <h1 style={styles.title}>Bulk Chapter Unlock With Coins</h1>
-            <p style={styles.subtitle}>
-              Choose how many chapters you want to unlock, pay once with Coins,
-              and unlock multiple chapters in a single transaction.
-            </p>
-          </div>
+    <main className="app-page">
+      <div className="app-shell">
+        <header className="topbar">
+          <div className="brand-block">
+            <div className="brand-mark">
+              SC
+            </div>
 
-          <div
-            style={{
-              ...styles.heroMainCard,
-              gridTemplateColumns: isMobile ? "1fr" : "1.35fr 0.85fr",
-            }}
-          >
-            <div style={styles.heroMainLeft}>
-              <div style={styles.heroMetaRow}>
-                <span style={styles.livePill}>⚡ Live on Testnet</span>
-                <span style={accessBadgeStyle}>
-                  {unlockedCountNumber > 0
-                    ? `📖 ${unlockedCountNumber} Chapters Unlocked`
-                    : "🔒 No Chapters Unlocked"}
-                </span>
-              </div>
-
-              <h2 style={styles.heroCardTitle}>Unlock Multiple Chapters</h2>
-              <p style={styles.heroCardDesc}>
-                Each chapter costs 5 Coins. Select how many chapters you want to
-                unlock, and the app will calculate the total price automatically.
+            <div>
+              <p className="brand-name">
+                Stellar Chapter Pay
               </p>
 
-              <div style={styles.heroStats}>
-                <div style={styles.heroStatBox}>
-                  <div style={styles.heroStatLabel}>Chapter Contract</div>
-                  <div style={styles.heroStatValue}>
-                    {contractsLoaded
-                      ? shortenMiddle(chapterContractId, 10, 8)
-                      : "Loading..."}
-                  </div>
-                </div>
-
-                <div style={styles.heroStatBox}>
-                  <div style={styles.heroStatLabel}>Coins Contract</div>
-                  <div style={styles.heroStatValue}>
-                    {contractsLoaded
-                      ? shortenMiddle(tokenContractId, 10, 8)
-                      : "Loading..."}
-                  </div>
-                </div>
-
-                <div style={styles.heroStatBox}>
-                  <div style={styles.heroStatLabel}>Price Per Chapter</div>
-                  <div style={styles.heroStatValueBig}>{pricePerChapter} Coins</div>
-                </div>
-
-                <div style={styles.heroStatBox}>
-                  <div style={styles.heroStatLabel}>Your Coins Balance</div>
-                  <div style={styles.heroStatValueBig}>{tokenBalance}</div>
-                </div>
-
-                <div style={styles.heroStatBox}>
-                  <div style={styles.heroStatLabel}>Chapters To Unlock</div>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value)}
-                    style={styles.numberInput}
-                  />
-                </div>
-
-                <div style={styles.heroStatBox}>
-                  <div style={styles.heroStatLabel}>Total Price</div>
-                  <div style={styles.heroStatValueBig}>{totalPrice} Coins</div>
-                </div>
-              </div>
-
-              <div style={styles.buttonRow}>
-                <button
-                  style={styles.ghostButton}
-                  onClick={() => {
-                    readUnlockedCount(walletAddress);
-                    readTokenBalance(walletAddress);
-                    readPricePerChapter(walletAddress);
-                  }}
-                  disabled={isLoadingStatus || !contractsLoaded}
-                >
-                  {isLoadingStatus ? "Refreshing..." : "Refresh Status"}
-                </button>
-
-                <button
-                  style={styles.primaryButton}
-                  onClick={handleClaimCoins}
-                  disabled={isClaiming || !contractsLoaded}
-                >
-                  {isClaiming ? "Claiming..." : "Claim Demo Coins"}
-                </button>
-
-                <button
-                  style={styles.primarySuccessButton}
-                  onClick={handleUnlockChapters}
-                  disabled={isUnlocking || !contractsLoaded}
-                >
-                  {isUnlocking ? "Unlocking..." : "Unlock Chapters"}
-                </button>
-              </div>
-            </div>
-
-            <div style={styles.heroMainRight}>
-              <div style={styles.miniInfoCard}>
-                <div style={styles.miniIcon}>🧾</div>
-                <div style={styles.label}>Latest Transaction Status</div>
-                <div style={styles.valueLarge}>{txStatus}</div>
-              </div>
-
-              <div style={styles.miniInfoCard}>
-                <div style={styles.miniIcon}>#</div>
-                <div style={styles.label}>Last Transaction Hash</div>
-                <div style={styles.hashValue}>
-                  {txHash
-                    ? shortenMiddle(txHash, 14, 12)
-                    : "No transaction recorded yet"}
-                </div>
-              </div>
+              <p className="brand-subtitle">
+                Chapter access powered by Soroban
+              </p>
             </div>
           </div>
-        </section>
 
-        {errorMessage && (
-          <div style={styles.alertBox}>
-            <div style={styles.alertIcon}>⚠️</div>
-            <div>
-              <div style={styles.alertTitle}>{errorType || "Error"}</div>
-              <div style={styles.alertText}>{errorMessage}</div>
-            </div>
-          </div>
-        )}
+          <div className="topbar-actions">
+            <span className="network-pill">
+              <span className="network-dot" />
+              Stellar Testnet
+            </span>
 
-        <div
-          style={{
-            ...styles.bottomGrid,
-            gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(320px, 1fr))",
-          }}
-        >
-          <section style={styles.card}>
-            <div style={styles.cardHeader}>
-              <div>
-                <h2 style={styles.cardTitle}>👛 Wallet</h2>
-                <p style={styles.cardDesc}>
-                  Connect your Freighter wallet and manage session state.
-                </p>
-              </div>
-              <span
-                style={
-                  isWalletConnected
-                    ? styles.successBadgeSmall
-                    : styles.neutralBadgeSmall
+            {isWalletConnected ? (
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={
+                  handleDisconnectWallet
                 }
-              >
-                {isWalletConnected ? "Connected" : "Disconnected"}
-              </span>
-            </div>
-
-            <div style={styles.infoPanel}>
-              <div style={styles.label}>Wallet Status</div>
-              <div style={styles.value}>{walletStatus}</div>
-            </div>
-
-            <div style={styles.infoPanel}>
-              <div style={styles.label}>Wallet Address</div>
-              <div style={styles.addressValue}>
-                {walletAddress
-                  ? shortenMiddle(walletAddress, 10, 8)
-                  : "No wallet connected"}
-              </div>
-            </div>
-
-            <div style={styles.buttonRow}>
-              <button
-                style={styles.primaryButton}
-                onClick={handleConnectWallet}
-                disabled={isConnecting}
-              >
-                {isConnecting ? "Connecting..." : "Connect Wallet"}
-              </button>
-
-              <button
-                style={styles.secondaryButton}
-                onClick={handleDisconnectWallet}
-                disabled={!walletAddress}
               >
                 Disconnect
               </button>
-
+            ) : (
               <button
-                style={styles.ghostButton}
-                onClick={() =>
-                  copyText(walletAddress, "Wallet address copied.")
+                type="button"
+                className="button button-primary"
+                onClick={
+                  handleConnectWallet
                 }
-                disabled={!walletAddress}
+                disabled={isConnecting}
               >
-                Copy Address
+                {isConnecting
+                  ? "Connecting..."
+                  : "Connect Freighter"}
               </button>
-            </div>
-          </section>
+            )}
+          </div>
+        </header>
 
-          <section style={styles.card}>
-            <div style={styles.cardHeader}>
+        <section className="hero-section">
+          <div className="hero-copy">
+            <p className="eyebrow">
+              PRODUCTION-READY STELLAR DAPP
+            </p>
+
+            <h1>
+              Unlock multiple digital
+              chapters in one transaction.
+            </h1>
+
+            <p className="hero-description">
+              Claim Chapter Coin, select
+              the number of chapters, and
+              process one transparent
+              Soroban payment on Stellar
+              Testnet.
+            </p>
+
+            <div className="hero-badges">
+              <span className="status-pill status-live">
+                Contract integration
+              </span>
+
+              <span className="status-pill">
+                Inter-contract payment
+              </span>
+
+              <span className="status-pill">
+                Responsive dashboard
+              </span>
+            </div>
+          </div>
+
+          <div className="hero-summary">
+            <p className="summary-label">
+              Current access
+            </p>
+
+            <p className="summary-value">
+              {unlockedCountNumber}
+            </p>
+
+            <p className="summary-unit">
+              chapters unlocked
+            </p>
+
+            <div className="summary-divider" />
+
+            <p className="summary-caption">
+              {isWalletConnected
+                ? "Live wallet data"
+                : "Connect a wallet for live data"}
+            </p>
+          </div>
+        </section>
+
+        {(errorMessage ||
+          configError) && (
+          <section
+            className="error-banner"
+            role="alert"
+          >
+            <div className="error-icon">
+              !
+            </div>
+
+            <div>
+              <p className="error-title">
+                {errorType ||
+                  "Configuration Error"}
+              </p>
+
+              <p className="error-text">
+                {errorMessage ||
+                  configError}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="error-close"
+              aria-label="Close error"
+              onClick={() => {
+                clearError();
+                setConfigError("");
+              }}
+            >
+              ×
+            </button>
+          </section>
+        )}
+
+        <section className="metrics-grid">
+          <article className="metric-card">
+            <p className="metric-label">
+              Chapter Coin balance
+            </p>
+
+            <p className="metric-value">
+              {tokenBalance}
+            </p>
+
+            <p className="metric-caption">
+              Available for purchases
+            </p>
+          </article>
+
+          <article className="metric-card">
+            <p className="metric-label">
+              Price per chapter
+            </p>
+
+            <p className="metric-value">
+              {pricePerChapter}
+            </p>
+
+            <p className="metric-caption">
+              Chapter Coin
+            </p>
+          </article>
+
+          <article className="metric-card">
+            <p className="metric-label">
+              Selected quantity
+            </p>
+
+            <p className="metric-value">
+              {quantityNumber}
+            </p>
+
+            <p className="metric-caption">
+              Chapters in this payment
+            </p>
+          </article>
+
+          <article className="metric-card">
+            <p className="metric-label">
+              Total payment
+            </p>
+
+            <p className="metric-value">
+              {totalPrice}
+            </p>
+
+            <p className="metric-caption">
+              Chapter Coin
+            </p>
+          </article>
+        </section>
+
+        <section className="workspace-grid">
+          <article className="panel action-panel">
+            <div className="panel-header">
               <div>
-                <h2 style={styles.cardTitle}>⚡ Activity</h2>
-                <p style={styles.cardDesc}>
-                  A quick summary of wallet, balance, quantity, and unlock flow.
+                <p className="panel-kicker">
+                  ACTION WORKSPACE
+                </p>
+
+                <h2>
+                  Purchase chapter access
+                </h2>
+
+                <p className="panel-description">
+                  All selected chapters are
+                  processed through one
+                  contract transaction.
                 </p>
               </div>
-              <span style={styles.liveBadge}>Bulk Unlock Flow</span>
-            </div>
 
-            <div style={styles.timeline}>
-              <div style={styles.timelineItem}>
-                <div style={styles.timelineDot} />
-                <div>
-                  <div style={styles.timelineTitle}>Wallet Session</div>
-                  <div style={styles.timelineText}>{walletStatus}</div>
-                </div>
-              </div>
-
-              <div style={styles.timelineItem}>
-                <div style={styles.timelineDot} />
-                <div>
-                  <div style={styles.timelineTitle}>Coins Balance</div>
-                  <div style={styles.timelineText}>{tokenBalance} Coins</div>
-                </div>
-              </div>
-
-              <div style={styles.timelineItem}>
-                <div style={styles.timelineDot} />
-                <div>
-                  <div style={styles.timelineTitle}>Selected Quantity</div>
-                  <div style={styles.timelineText}>
-                    {quantityNumber || 0} chapter(s)
-                  </div>
-                </div>
-              </div>
-
-              <div style={styles.timelineItem}>
-                <div style={styles.timelineDot} />
-                <div>
-                  <div style={styles.timelineTitle}>Unlocked Chapters</div>
-                  <div style={styles.timelineText}>
-                    {unlockedCountNumber} chapter(s)
-                  </div>
-                </div>
-              </div>
-
-              <div style={styles.timelineItem}>
-                <div style={styles.timelineDot} />
-                <div>
-                  <div style={styles.timelineTitle}>Transaction Update</div>
-                  <div style={styles.timelineText}>{txStatus}</div>
-                </div>
-              </div>
-            </div>
-
-            <div style={styles.buttonRow}>
-              <button
-                style={styles.secondaryButton}
-                onClick={() => copyText(txHash, "Transaction hash copied.")}
-                disabled={!txHash}
+              <span
+                className={
+                  contractsLoaded
+                    ? "panel-state state-ready"
+                    : "panel-state"
+                }
               >
-                Copy Transaction Hash
+                {contractsLoaded
+                  ? "Contracts ready"
+                  : "Loading contracts"}
+              </span>
+            </div>
+
+            <form
+              className="purchase-form"
+              onSubmit={
+                handleUnlockChapters
+              }
+            >
+              <label
+                className="field-label"
+                htmlFor="chapter-quantity"
+              >
+                Number of chapters
+              </label>
+
+              <input
+                id="chapter-quantity"
+                className="quantity-input"
+                type="number"
+                min="1"
+                max="100"
+                step="1"
+                value={quantity}
+                onChange={(event) => {
+                  setQuantity(
+                    event.target.value
+                  );
+                }}
+              />
+
+              <div className="price-summary">
+                <div>
+                  <p className="price-label">
+                    Estimated total
+                  </p>
+
+                  <p className="price-value">
+                    {totalPrice} Coins
+                  </p>
+                </div>
+
+                <p className="price-formula">
+                  {quantityNumber} ×{" "}
+                  {normalizedPrice}
+                </p>
+              </div>
+
+              <div className="action-buttons">
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={
+                    handleClaimCoins
+                  }
+                  disabled={
+                    isClaiming ||
+                    !isWalletConnected ||
+                    !tokenContractId
+                  }
+                >
+                  {isClaiming
+                    ? "Claiming..."
+                    : "Claim Demo Coins"}
+                </button>
+
+                <button
+                  type="submit"
+                  className="button button-primary"
+                  disabled={
+                    isUnlocking ||
+                    !canPurchase
+                  }
+                >
+                  {isUnlocking
+                    ? "Processing..."
+                    : "Unlock Chapters"}
+                </button>
+              </div>
+
+              {!canPurchase && (
+                <p className="form-hint">
+                  Connect Freighter and make
+                  sure the wallet has enough
+                  Chapter Coin.
+                </p>
+              )}
+            </form>
+          </article>
+
+          <article className="panel transaction-panel">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">
+                  TRANSACTION MONITOR
+                </p>
+
+                <h2>
+                  Latest transaction
+                </h2>
+              </div>
+
+              <span className="panel-state">
+                Testnet
+              </span>
+            </div>
+
+            <div className="status-box">
+              <p className="detail-label">
+                Status
+              </p>
+
+              <p className="status-message">
+                {txStatus}
+              </p>
+            </div>
+
+            <div className="detail-box">
+              <p className="detail-label">
+                Transaction hash
+              </p>
+
+              <p className="detail-value">
+                {txHash
+                  ? shortenMiddle(
+                      txHash,
+                      16,
+                      14
+                    )
+                  : "No transaction recorded"}
+              </p>
+            </div>
+
+            <div className="action-buttons">
+              <button
+                type="button"
+                className="button button-secondary"
+                disabled={!txHash}
+                onClick={() =>
+                  copyText(
+                    txHash,
+                    "Transaction hash"
+                  )
+                }
+              >
+                Copy hash
+              </button>
+
+              {explorerUrl && (
+                <a
+                  className="button button-link"
+                  href={explorerUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View on explorer
+                </a>
+              )}
+            </div>
+          </article>
+        </section>
+
+        <section className="lower-grid">
+          <article className="panel">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">
+                  WALLET SESSION
+                </p>
+
+                <h2>
+                  Freighter wallet
+                </h2>
+              </div>
+
+              <span
+                className={
+                  isWalletConnected
+                    ? "panel-state state-ready"
+                    : "panel-state"
+                }
+              >
+                {isWalletConnected
+                  ? "Connected"
+                  : "Disconnected"}
+              </span>
+            </div>
+
+            <div className="detail-list">
+              <div className="detail-row">
+                <span>Status</span>
+
+                <strong>
+                  {walletStatus}
+                </strong>
+              </div>
+
+              <div className="detail-row">
+                <span>Address</span>
+
+                <strong>
+                  {walletAddress
+                    ? shortenMiddle(
+                        walletAddress
+                      )
+                    : "Not connected"}
+                </strong>
+              </div>
+
+              <div className="detail-row">
+                <span>Network</span>
+
+                <strong>
+                  {STELLAR_NETWORK.name}
+                </strong>
+              </div>
+            </div>
+
+            <div className="action-buttons">
+              <button
+                type="button"
+                className="button button-secondary"
+                disabled={!walletAddress}
+                onClick={() =>
+                  copyText(
+                    walletAddress,
+                    "Wallet address"
+                  )
+                }
+              >
+                Copy address
+              </button>
+
+              <button
+                type="button"
+                className="button button-secondary"
+                disabled={
+                  isRefreshing ||
+                  !walletAddress ||
+                  !contractsLoaded
+                }
+                onClick={() =>
+                  refreshAccountData(
+                    walletAddress
+                  )
+                }
+              >
+                {isRefreshing
+                  ? "Refreshing..."
+                  : "Refresh data"}
               </button>
             </div>
-          </section>
-        </div>
+          </article>
+
+          <article className="panel">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">
+                  CONTRACT RUNTIME
+                </p>
+
+                <h2>
+                  Soroban configuration
+                </h2>
+              </div>
+
+              <span
+                className={
+                  contractsLoaded
+                    ? "panel-state state-ready"
+                    : "panel-state"
+                }
+              >
+                {contractsLoaded
+                  ? "Available"
+                  : "Unavailable"}
+              </span>
+            </div>
+
+            <div className="contract-list">
+              <div className="contract-item">
+                <p className="detail-label">
+                  Chapter Payment
+                </p>
+
+                <p className="contract-address">
+                  {chapterContractId
+                    ? shortenMiddle(
+                        chapterContractId,
+                        14,
+                        12
+                      )
+                    : "Not loaded"}
+                </p>
+              </div>
+
+              <div className="contract-item">
+                <p className="detail-label">
+                  Chapter Token
+                </p>
+
+                <p className="contract-address">
+                  {tokenContractId
+                    ? shortenMiddle(
+                        tokenContractId,
+                        14,
+                        12
+                      )
+                    : "Not loaded"}
+                </p>
+              </div>
+            </div>
+          </article>
+
+          <article className="panel activity-panel">
+            <div className="panel-header">
+              <div>
+                <p className="panel-kicker">
+                  PRODUCT ANALYTICS
+                </p>
+
+                <h2>
+                  Recent activity
+                </h2>
+              </div>
+
+              <span className="panel-state">
+                {activityEvents.length} events
+              </span>
+            </div>
+
+            {activityEvents.length === 0 ? (
+              <p className="empty-state">
+                Wallet and contract activity
+                will appear here.
+              </p>
+            ) : (
+              <div className="activity-list">
+                {activityEvents.map(
+                  (activity) => (
+                    <div
+                      className="activity-item"
+                      key={activity.id}
+                    >
+                      <span className="activity-dot" />
+
+                      <div>
+                        <p className="activity-name">
+                          {activity.name
+                            .replaceAll(
+                              "_",
+                              " "
+                            )}
+                        </p>
+
+                        <p className="activity-time">
+                          {formatTimestamp(
+                            activity.timestamp
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </article>
+        </section>
+
+        <footer className="app-footer">
+          <p>
+            Stellar Chapter Pay · Soroban
+            Testnet MVP
+          </p>
+
+          <p>
+            Payments are processed through
+            Chapter Payment and Chapter
+            Token contracts.
+          </p>
+        </footer>
       </div>
-    </div>
+    </main>
   );
 }
-
-const styles = {
-  page: {
-    minHeight: "100vh",
-    margin: 0,
-    background:
-      "radial-gradient(circle at top, #132347 0%, #09152d 42%, #050d1d 100%)",
-    padding: "20px",
-    fontFamily: "Arial, sans-serif",
-  },
-  shell: {
-    width: "100%",
-    maxWidth: "1180px",
-    margin: "0 auto",
-  },
-  hero: {
-    position: "relative",
-    overflow: "hidden",
-    background:
-      "linear-gradient(180deg, rgba(10,24,54,0.94) 0%, rgba(8,17,38,0.94) 100%)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: "30px",
-    padding: "28px",
-    boxShadow: "0 22px 60px rgba(0,0,0,0.32)",
-    marginBottom: "20px",
-  },
-  heroGlow: {
-    position: "absolute",
-    top: "-80px",
-    right: "-40px",
-    width: "280px",
-    height: "280px",
-    borderRadius: "999px",
-    background:
-      "radial-gradient(circle, rgba(96,165,250,0.18) 0%, rgba(139,92,246,0.12) 38%, rgba(0,0,0,0) 70%)",
-    pointerEvents: "none",
-  },
-  heroIntro: {
-    textAlign: "center",
-    maxWidth: "780px",
-    margin: "0 auto 26px auto",
-    position: "relative",
-    zIndex: 1,
-  },
-  eyebrow: {
-    margin: "0 0 10px 0",
-    color: "#7dd3fc",
-    fontSize: "12px",
-    fontWeight: "bold",
-    letterSpacing: "0.18em",
-  },
-  title: {
-    margin: "0 0 14px 0",
-    color: "#f9fafb",
-    fontSize: "42px",
-    lineHeight: 1.1,
-  },
-  subtitle: {
-    margin: "0 auto",
-    color: "#cbd5e1",
-    fontSize: "16px",
-    lineHeight: 1.8,
-    maxWidth: "760px",
-  },
-  heroMainCard: {
-    display: "grid",
-    gap: "18px",
-    alignItems: "stretch",
-  },
-  heroMainLeft: {
-    background: "rgba(255,255,255,0.03)",
-    border: "1px solid rgba(255,255,255,0.06)",
-    borderRadius: "22px",
-    padding: "24px",
-  },
-  heroMainRight: {
-    display: "grid",
-    gap: "16px",
-  },
-  heroMetaRow: {
-    display: "flex",
-    gap: "10px",
-    flexWrap: "wrap",
-    marginBottom: "16px",
-  },
-  livePill: {
-    display: "inline-block",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    background: "rgba(125, 211, 252, 0.12)",
-    color: "#7dd3fc",
-    border: "1px solid rgba(125, 211, 252, 0.18)",
-    fontSize: "13px",
-    fontWeight: "bold",
-  },
-  heroStatusSuccess: {
-    display: "inline-block",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    background: "rgba(16,185,129,0.16)",
-    color: "#6ee7b7",
-    border: "1px solid rgba(16,185,129,0.22)",
-    fontSize: "13px",
-    fontWeight: "bold",
-  },
-  heroStatusWarning: {
-    display: "inline-block",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    background: "rgba(245,158,11,0.16)",
-    color: "#fcd34d",
-    border: "1px solid rgba(245,158,11,0.22)",
-    fontSize: "13px",
-    fontWeight: "bold",
-  },
-  heroCardTitle: {
-    margin: "0 0 10px 0",
-    fontSize: "28px",
-    color: "#f8fafc",
-  },
-  heroCardDesc: {
-    margin: 0,
-    color: "#a5b4fc",
-    fontSize: "15px",
-    lineHeight: 1.8,
-    maxWidth: "620px",
-  },
-  heroStats: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: "14px",
-    marginTop: "20px",
-  },
-  heroStatBox: {
-    background: "#0b1730",
-    border: "1px solid rgba(255,255,255,0.06)",
-    borderRadius: "18px",
-    padding: "16px",
-    minHeight: "96px",
-  },
-  heroStatLabel: {
-    fontSize: "12px",
-    color: "#94a3b8",
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    marginBottom: "10px",
-    fontWeight: "bold",
-  },
-  heroStatValue: {
-    fontSize: "15px",
-    color: "#93c5fd",
-    lineHeight: 1.6,
-    wordBreak: "break-all",
-    fontWeight: "600",
-  },
-  heroStatValueBig: {
-    fontSize: "22px",
-    color: "#f8fafc",
-    fontWeight: "bold",
-  },
-  numberInput: {
-    width: "100%",
-    padding: "10px 12px",
-    borderRadius: "12px",
-    border: "1px solid rgba(255,255,255,0.1)",
-    background: "#111827",
-    color: "#f9fafb",
-    fontSize: "16px",
-    outline: "none",
-    boxSizing: "border-box",
-  },
-  miniInfoCard: {
-    background: "#0b1730",
-    border: "1px solid rgba(255,255,255,0.06)",
-    borderRadius: "20px",
-    padding: "18px",
-    minHeight: "120px",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-  },
-  miniIcon: {
-    fontSize: "20px",
-    marginBottom: "10px",
-  },
-  alertBox: {
-    display: "grid",
-    gridTemplateColumns: "28px 1fr",
-    gap: "12px",
-    alignItems: "start",
-    background: "rgba(127, 29, 29, 0.18)",
-    border: "1px solid rgba(248, 113, 113, 0.22)",
-    borderRadius: "18px",
-    padding: "16px 18px",
-    marginBottom: "20px",
-    color: "#fecaca",
-  },
-  alertIcon: {
-    fontSize: "20px",
-    lineHeight: 1.2,
-  },
-  alertTitle: {
-    fontWeight: "bold",
-    marginBottom: "6px",
-    fontSize: "15px",
-  },
-  alertText: {
-    fontSize: "14px",
-    lineHeight: 1.6,
-  },
-  bottomGrid: {
-    display: "grid",
-    gap: "20px",
-  },
-  card: {
-    background: "rgba(17, 24, 39, 0.88)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: "24px",
-    padding: "22px",
-    boxShadow: "0 18px 50px rgba(0,0,0,0.22)",
-    color: "#f9fafb",
-    minHeight: "320px",
-  },
-  cardHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "12px",
-    marginBottom: "18px",
-    flexWrap: "wrap",
-  },
-  cardTitle: {
-    margin: 0,
-    fontSize: "24px",
-    color: "#f8fafc",
-  },
-  cardDesc: {
-    margin: "8px 0 0 0",
-    fontSize: "14px",
-    lineHeight: 1.6,
-    color: "#94a3b8",
-  },
-  infoPanel: {
-    background: "#0b1730",
-    border: "1px solid rgba(255,255,255,0.06)",
-    borderRadius: "16px",
-    padding: "14px 16px",
-    marginTop: "14px",
-    minHeight: "86px",
-  },
-  label: {
-    fontSize: "12px",
-    color: "#94a3b8",
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    marginBottom: "8px",
-    fontWeight: "bold",
-  },
-  value: {
-    fontSize: "16px",
-    color: "#e5e7eb",
-    lineHeight: 1.6,
-  },
-  valueLarge: {
-    fontSize: "17px",
-    color: "#e5e7eb",
-    lineHeight: 1.7,
-    fontWeight: "600",
-  },
-  addressValue: {
-    fontSize: "14px",
-    color: "#93c5fd",
-    lineHeight: 1.6,
-    wordBreak: "break-all",
-  },
-  hashValue: {
-    fontSize: "14px",
-    color: "#fda4af",
-    lineHeight: 1.6,
-    wordBreak: "break-all",
-  },
-  buttonRow: {
-    display: "flex",
-    gap: "12px",
-    marginTop: "18px",
-    flexWrap: "wrap",
-  },
-  primaryButton: {
-    background: "linear-gradient(135deg, #8b5cf6, #7c3aed)",
-    color: "white",
-    border: "none",
-    padding: "12px 18px",
-    borderRadius: "14px",
-    cursor: "pointer",
-    fontSize: "15px",
-    fontWeight: "bold",
-    boxShadow: "0 10px 24px rgba(124,58,237,0.28)",
-  },
-  primarySuccessButton: {
-    background: "linear-gradient(135deg, #10b981, #059669)",
-    color: "white",
-    border: "none",
-    padding: "12px 18px",
-    borderRadius: "14px",
-    cursor: "pointer",
-    fontSize: "15px",
-    fontWeight: "bold",
-    boxShadow: "0 10px 24px rgba(5,150,105,0.25)",
-  },
-  secondaryButton: {
-    background: "rgba(255,255,255,0.07)",
-    color: "white",
-    border: "1px solid rgba(255,255,255,0.08)",
-    padding: "12px 18px",
-    borderRadius: "14px",
-    cursor: "pointer",
-    fontSize: "15px",
-    fontWeight: "bold",
-  },
-  ghostButton: {
-    background: "rgba(14,165,233,0.16)",
-    color: "#7dd3fc",
-    border: "1px solid rgba(14,165,233,0.22)",
-    padding: "12px 18px",
-    borderRadius: "14px",
-    cursor: "pointer",
-    fontSize: "15px",
-    fontWeight: "bold",
-  },
-  successBadgeSmall: {
-    display: "inline-block",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    background: "rgba(16,185,129,0.16)",
-    color: "#6ee7b7",
-    border: "1px solid rgba(16,185,129,0.22)",
-    fontWeight: "bold",
-    fontSize: "13px",
-  },
-  neutralBadgeSmall: {
-    display: "inline-block",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    background: "rgba(148,163,184,0.14)",
-    color: "#cbd5e1",
-    border: "1px solid rgba(148,163,184,0.2)",
-    fontWeight: "bold",
-    fontSize: "13px",
-  },
-  liveBadge: {
-    display: "inline-block",
-    padding: "8px 12px",
-    borderRadius: "999px",
-    background: "rgba(255,255,255,0.06)",
-    color: "#d1d5db",
-    border: "1px solid rgba(255,255,255,0.08)",
-    fontWeight: "bold",
-    fontSize: "13px",
-  },
-  timeline: {
-    display: "grid",
-    gap: "16px",
-    marginTop: "10px",
-  },
-  timelineItem: {
-    display: "grid",
-    gridTemplateColumns: "12px 1fr",
-    gap: "14px",
-    alignItems: "start",
-  },
-  timelineDot: {
-    width: "12px",
-    height: "12px",
-    borderRadius: "999px",
-    background: "linear-gradient(135deg, #60a5fa, #8b5cf6)",
-    marginTop: "6px",
-    boxShadow: "0 0 16px rgba(96,165,250,0.45)",
-  },
-  timelineTitle: {
-    fontSize: "14px",
-    fontWeight: "bold",
-    color: "#f8fafc",
-    marginBottom: "6px",
-  },
-  timelineText: {
-    fontSize: "14px",
-    lineHeight: 1.7,
-    color: "#cbd5e1",
-  },
-};
 
 export default App;
