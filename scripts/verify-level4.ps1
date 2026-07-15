@@ -31,7 +31,7 @@ function Invoke-NativeStep {
     Write-Host "$Name passed." -ForegroundColor Green
 }
 
-function Assert-FileExists {
+function Assert-RequiredFile {
     param(
         [Parameter(Mandatory = $true)]
         [string]$RelativePath
@@ -139,6 +139,7 @@ $RequiredFiles = @(
     "frontend\package-lock.json",
     "frontend\vite.config.js",
     "frontend\index.html",
+    "frontend\public\contracts.json",
     "frontend\src\App.jsx",
     "frontend\src\App.css",
     "frontend\src\index.css",
@@ -164,13 +165,58 @@ $RequiredFiles = @(
     "vercel.json",
     "railway.toml",
     "Procfile",
+    "CONTRACT_ID.txt",
     "README.md",
     ".gitignore"
 )
 
 foreach ($RequiredFile in $RequiredFiles) {
-    Assert-FileExists $RequiredFile
+    Assert-RequiredFile $RequiredFile
 }
+
+Write-Host "`n=== DEPLOYED CONTRACT IDS ===" -ForegroundColor Cyan
+
+$ContractConfigPath = Join-Path `
+    $FrontendRoot `
+    "public\contracts.json"
+
+try {
+    $ContractConfig = Get-Content `
+        $ContractConfigPath `
+        -Raw |
+        ConvertFrom-Json
+}
+catch {
+    throw "frontend/public/contracts.json is invalid JSON."
+}
+
+$PaymentContractId =
+    $ContractConfig.chapter_contract_id
+
+$TokenContractId =
+    $ContractConfig.token_contract_id
+
+if (
+    $PaymentContractId -notmatch
+    '^C[A-Z2-7]{55}$'
+) {
+    throw "Chapter Payment contract ID is invalid."
+}
+
+if (
+    $TokenContractId -notmatch
+    '^C[A-Z2-7]{55}$'
+) {
+    throw "Chapter Token contract ID is invalid."
+}
+
+Write-Host `
+    "Chapter Payment: $PaymentContractId" `
+    -ForegroundColor Green
+
+Write-Host `
+    "Chapter Token:   $TokenContractId" `
+    -ForegroundColor Green
 
 Write-Host "`n=== GENERATED FILE TRACKING CHECK ===" `
     -ForegroundColor Cyan
@@ -181,7 +227,8 @@ if ($LASTEXITCODE -ne 0) {
     throw "Could not read tracked Git files."
 }
 
-$TrackedGeneratedFiles = $TrackedFiles |
+$TrackedGeneratedFiles = @(
+    $TrackedFiles |
     Where-Object {
         $_ -match '(^|/)(node_modules|dist|target|\.vite)(/|$)' -or
         $_ -match 'test_snapshots' -or
@@ -191,8 +238,9 @@ $TrackedGeneratedFiles = $TrackedFiles |
         $_ -match 'deploy-stdout\.tmp$' -or
         $_ -match 'deploy-stderr\.tmp$'
     }
+)
 
-if ($TrackedGeneratedFiles) {
+if ($TrackedGeneratedFiles.Count -gt 0) {
     $TrackedGeneratedFiles |
         ForEach-Object {
             Write-Host $_ -ForegroundColor Red
@@ -207,8 +255,32 @@ Write-Host "No generated files are tracked." `
 Write-Host "`n=== OLD TEMPLATE REFERENCE CHECK ===" `
     -ForegroundColor Cyan
 
+$OldDashName = (
+    "hello" +
+    "-world"
+)
+
+$OldUnderscoreName = (
+    "hello" +
+    "_world"
+)
+
+$OldTemplatePattern = (
+    [regex]::Escape($OldDashName) +
+    "|" +
+    [regex]::Escape($OldUnderscoreName)
+)
+
 $OldReferences = @(
-    git grep -n -I -E "hello-world|hello_world" -- . 2>$null
+    git grep `
+        -n `
+        -I `
+        -E `
+        $OldTemplatePattern `
+        -- `
+        . `
+        ":(exclude)scripts/verify-level4.ps1" `
+        2>$null
 )
 
 $OldReferenceExitCode = $LASTEXITCODE
@@ -245,7 +317,8 @@ $PublicPaths = @(
 
 $RestrictedTerms = Select-String `
     -Path $PublicPaths `
-    -Pattern "AI Review|AI_REVIEW|leak|judge checklist|ban giám khảo|hidden criteria|internal review" `
+    -Pattern `
+        "AI Review|AI_REVIEW|leak|judge checklist|ban giám khảo|hidden criteria|internal review" `
     -CaseSensitive:$false `
     -ErrorAction SilentlyContinue
 
@@ -272,11 +345,12 @@ try {
         Out-Null
 }
 catch {
-    throw "vercel.json is not valid JSON."
+    throw "vercel.json is invalid JSON."
 }
 
-$RailwayPath = Join-Path $RepoRoot "railway.toml"
-$RailwayContent = Get-Content $RailwayPath -Raw
+$RailwayContent = Get-Content `
+    (Join-Path $RepoRoot "railway.toml") `
+    -Raw
 
 $RailwayRequirements = @(
     'builder = "RAILPACK"',
@@ -291,8 +365,9 @@ foreach ($Requirement in $RailwayRequirements) {
     }
 }
 
-$ProcfilePath = Join-Path $RepoRoot "Procfile"
-$ProcfileContent = Get-Content $ProcfilePath -Raw
+$ProcfileContent = Get-Content `
+    (Join-Path $RepoRoot "Procfile") `
+    -Raw
 
 if (-not $ProcfileContent.Trim().StartsWith("web:")) {
     throw "Procfile does not contain a web process."
@@ -304,7 +379,10 @@ Write-Host "Deployment configuration passed." `
 Write-Host "`n=== CI CONFIGURATION ===" `
     -ForegroundColor Cyan
 
-$CiPath = Join-Path $RepoRoot ".github\workflows\ci.yml"
+$CiPath = Join-Path `
+    $RepoRoot `
+    ".github\workflows\ci.yml"
+
 $CiContent = Get-Content $CiPath -Raw
 
 $RequiredCiJobs = @(
@@ -320,18 +398,19 @@ foreach ($RequiredCiJob in $RequiredCiJobs) {
     }
 }
 
-$OldCiConfiguration = Select-String `
+$OutdatedCi = Select-String `
     -Path $CiPath `
-    -Pattern "actions/checkout@v4|actions/setup-node@v4|node-version:\s*20" `
+    -Pattern `
+        "actions/checkout@v4|actions/setup-node@v4|node-version:\s*20" `
     -CaseSensitive:$false
 
-if ($OldCiConfiguration) {
-    $OldCiConfiguration |
+if ($OutdatedCi) {
+    $OutdatedCi |
         ForEach-Object {
             Write-Host $_ -ForegroundColor Red
         }
 
-    throw "CI workflow contains outdated action or Node.js configuration."
+    throw "CI contains outdated actions or Node.js configuration."
 }
 
 Write-Host "CI configuration passed." `
@@ -502,7 +581,7 @@ if (-not $KeepArtifacts) {
             -Force `
             -ErrorAction SilentlyContinue
 
-    Write-Host "Generated application output removed." `
+    Write-Host "Generated output removed." `
         -ForegroundColor Green
 }
 
