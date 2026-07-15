@@ -32,17 +32,71 @@ function App() {
   const [tokenContractId, setTokenContractId] = useState("");
   const [contractsLoaded, setContractsLoaded] = useState(false);
 
-  const [walletAddress, setWalletAddress] = useState("");
-  const [walletStatus, setWalletStatus] = useState("Wallet not connected");
+  const [walletAddress, setWalletAddress] = useState(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+
+    return (
+      window.localStorage.getItem(CACHE_KEYS.walletAddress) || ""
+    );
+  });
+  const [walletStatus, setWalletStatus] = useState(() => {
+    if (typeof window === "undefined") {
+      return "Wallet not connected";
+    }
+
+    const cachedWallet = window.localStorage.getItem(
+      CACHE_KEYS.walletAddress
+    );
+
+    return cachedWallet
+      ? "Cached wallet found. Reconnect to refresh live data."
+      : "Wallet not connected";
+  });
   const [isWalletConnected, setIsWalletConnected] = useState(false);
 
-  const [unlockedCount, setUnlockedCount] = useState("0");
+  const [unlockedCount, setUnlockedCount] = useState(() => {
+    if (typeof window === "undefined") {
+      return "0";
+    }
+
+    return (
+      window.localStorage.getItem(CACHE_KEYS.unlockedCount) || "0"
+    );
+  });
   const [pricePerChapter, setPricePerChapter] = useState("...");
-  const [tokenBalance, setTokenBalance] = useState("0");
+  const [tokenBalance, setTokenBalance] = useState(() => {
+    if (typeof window === "undefined") {
+      return "0";
+    }
+
+    return (
+      window.localStorage.getItem(CACHE_KEYS.tokenBalance) || "0"
+    );
+  });
   const [quantity, setQuantity] = useState("1");
 
-  const [txStatus, setTxStatus] = useState("No transaction yet.");
-  const [txHash, setTxHash] = useState("");
+  const [txStatus, setTxStatus] = useState(() => {
+    if (typeof window === "undefined") {
+      return "No transaction yet.";
+    }
+
+    const cachedHash = window.localStorage.getItem(
+      CACHE_KEYS.txHash
+    );
+
+    return cachedHash
+      ? "Loaded last transaction from cache."
+      : "No transaction yet.";
+  });
+  const [txHash, setTxHash] = useState(() => {
+    if (typeof window === "undefined") {
+      return "";
+    }
+
+    return window.localStorage.getItem(CACHE_KEYS.txHash) || "";
+  });
 
   const [errorMessage, setErrorMessage] = useState("");
   const [errorType, setErrorType] = useState("");
@@ -68,31 +122,6 @@ function App() {
 
   const removeCache = (key) => {
     localStorage.removeItem(key);
-  };
-
-  const loadCachedData = () => {
-    const cachedWallet = localStorage.getItem(CACHE_KEYS.walletAddress);
-    const cachedUnlockedCount = localStorage.getItem(CACHE_KEYS.unlockedCount);
-    const cachedTxHash = localStorage.getItem(CACHE_KEYS.txHash);
-    const cachedTokenBalance = localStorage.getItem(CACHE_KEYS.tokenBalance);
-
-    if (cachedWallet) {
-      setWalletAddress(cachedWallet);
-      setWalletStatus("Cached wallet found. Reconnect to refresh live data.");
-    }
-
-    if (cachedUnlockedCount) {
-      setUnlockedCount(cachedUnlockedCount);
-    }
-
-    if (cachedTxHash) {
-      setTxHash(cachedTxHash);
-      setTxStatus("Loaded last transaction from cache.");
-    }
-
-    if (cachedTokenBalance) {
-      setTokenBalance(cachedTokenBalance);
-    }
   };
 
   const loadContractsConfig = async () => {
@@ -487,17 +516,57 @@ function App() {
   };
 
   useEffect(() => {
-    loadCachedData();
-    loadContractsConfig();
+    let isActive = true;
+
+    fetch("/contracts.json")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error("contracts.json not found");
+        }
+
+        return response.json();
+      })
+      .then((data) => {
+        if (!isActive) {
+          return;
+        }
+
+        setChapterContractId(
+          (data.chapter_contract_id || "").trim()
+        );
+
+        setTokenContractId(
+          (data.token_contract_id || "").trim()
+        );
+
+        setContractsLoaded(true);
+      })
+      .catch((error) => {
+        console.error(
+          "Failed to load contracts config:",
+          error
+        );
+
+        if (!isActive) {
+          return;
+        }
+
+        setErrorType("Config Load Failed");
+        setErrorMessage(
+          "Could not load contract addresses from contracts.json."
+        );
+      });
 
     const onResize = () => {
       setIsMobile(window.innerWidth < 900);
     };
 
-    onResize();
     window.addEventListener("resize", onResize);
 
-    return () => window.removeEventListener("resize", onResize);
+    return () => {
+      isActive = false;
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   const quantityNumber =
