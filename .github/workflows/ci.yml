@@ -1,30 +1,176 @@
-name: CI
+name: Stellar Chapter Pay CI
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
+      - level-4-upgrade
   pull_request:
-    branches: ["main"]
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stellar-chapter-pay-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  smart-contract:
+    name: Smart Contract CI
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: contracts/chapter-unlock
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Display Rust versions
+        run: |
+          rustc --version
+          cargo --version
+          rustup target list --installed
+
+      - name: Check contract formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check WASM contracts
+        run: cargo check --workspace --locked --target wasm32v1-none
+
+      - name: Run contract tests
+        run: cargo test --workspace --locked
+
+      - name: Build release WASM contracts
+        run: cargo build --workspace --locked --target wasm32v1-none --release
+
   frontend:
+    name: Frontend CI
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Display Node.js versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Install frontend dependencies
+        run: npm ci --no-fund
+
+      - name: Run frontend lint
+        run: npm run lint
+
+      - name: Run frontend tests
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build
+
+  backend:
+    name: Backend CI
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Display Node.js versions
+        run: |
+          node --version
+          npm --version
+
+      - name: Install backend dependencies
+        run: npm ci --no-fund
+
+      - name: Type-check backend
+        run: npm run type-check
+
+      - name: Run backend tests
+        run: npm test
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Audit backend dependencies
+        run: npm audit --audit-level=high
+
+  deployment-config:
+    name: Deployment Config Detection
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v6
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
-          cache: npm
+          node-version: 24
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Check required deployment files
+        shell: bash
+        run: |
+          set -euo pipefail
 
-      - name: Run tests
-        run: npm test
+          test -f vercel.json
+          test -f railway.toml
+          test -f Procfile
+          test -f docs/ARCHITECTURE.md
+          test -f docs/QUALITY_AND_DEPLOYMENT.md
+          test -f scripts/deploy-and-save.ps1
+          test -f scripts/verify-level4.ps1
 
-      - name: Build app
-        run: npm run build
+      - name: Validate Vercel JSON
+        run: |
+          node -e "JSON.parse(require('fs').readFileSync('vercel.json', 'utf8')); console.log('vercel.json is valid JSON')"
+
+      - name: Check Railway configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -q 'builder = "RAILPACK"' railway.toml
+          grep -q 'buildCommand' railway.toml
+          grep -q 'startCommand' railway.toml
+          grep -q 'healthcheckPath = "/health"' railway.toml
+
+      - name: Check Procfile
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -q '^web:' Procfile

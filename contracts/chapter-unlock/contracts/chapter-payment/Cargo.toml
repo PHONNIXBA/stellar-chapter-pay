@@ -1,9 +1,9 @@
 [package]
-name = "chapter-token"
+name = "chapter-payment"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Soroban utility token used for chapter payments"
+description = "Soroban payment contract for unlocking digital chapters with Chapter Coin"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

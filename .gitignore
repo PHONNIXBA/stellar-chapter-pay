@@ -22,3 +22,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+node_modules/
+dist/
+target/
+.vite/
+.stellar/
+.env
+.env.local
+deploy-output.txt
+deploy-stdout.tmp
+deploy-stderr.tmp
+version-check.txt
+*.bak
+contracts/**/test_snapshots/
