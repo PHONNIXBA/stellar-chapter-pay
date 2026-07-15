@@ -1,11 +1,12 @@
 [package]
-name = "hello-world"
-version = "0.0.0"
+name = "chapter-payment"
+version = "0.1.0"
 edition = "2021"
 publish = false
+description = "Soroban payment contract for unlocking digital chapters with Chapter Coin"
 
 [lib]
-crate-type = ["lib", "cdylib"]
+crate-type = ["cdylib", "rlib"]
 doctest = false
 
 [dependencies]
