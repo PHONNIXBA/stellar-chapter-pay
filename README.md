@@ -399,6 +399,38 @@ Available variables:
 
 Do not commit the `.env` file.
 
+<!-- TESTNET_DEPLOYMENT_START -->
+## Current Stellar Testnet Deployment
+
+The production MVP contracts are deployed and initialized on Stellar Testnet.
+
+| Contract | Contract ID |
+|---|---|
+| Chapter Payment | CD4Q4QQRSLMXOZCUE72OAXLKA5XBGAEO4G4O37BF4QIMOY7GQUHTAE2O |
+| Chapter Token | CD4IL6YDYQRRLH5RKJCQ2D4XGQWJSLSOKBTGL6UE6VLBBL4I4EWEXTNR |
+
+Contract explorer pages:
+
+- Chapter Payment: https://stellar.expert/explorer/testnet/contract/CD4Q4QQRSLMXOZCUE72OAXLKA5XBGAEO4G4O37BF4QIMOY7GQUHTAE2O
+- Chapter Token: https://stellar.expert/explorer/testnet/contract/CD4IL6YDYQRRLH5RKJCQ2D4XGQWJSLSOKBTGL6UE6VLBBL4I4EWEXTNR
+
+Deployment configuration:
+
+- Network: Stellar Testnet
+- Price per chapter: 5 Chapter Coins
+- Demo faucet amount: 100 Chapter Coins
+- Contract initialization: completed
+- Inter-contract payment smoke test: passed
+
+Verified payment flow:
+
+1. The deployer claimed 100 Chapter Coins.
+2. The deployer unlocked 2 chapters.
+3. The Chapter Payment contract charged 10 Chapter Coins.
+4. The remaining balance became 90 Chapter Coins.
+5. Payment statistics and unlocked chapter count were updated.
+<!-- TESTNET_DEPLOYMENT_END -->
+
 ## Contract Configuration
 
 The frontend loads contract IDs from:
