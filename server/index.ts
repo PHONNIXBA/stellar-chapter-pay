@@ -22,6 +22,15 @@ import {
   listInteractions,
 } from "./services/dataService";
 
+import {
+  getUserByWallet,
+  isValidEmail,
+  isValidUserName,
+  isValidWalletAddress,
+  listUsers,
+  registerUser,
+} from "./services/userService";
+
 export const app = express();
 
 const port = Number(
@@ -51,16 +60,17 @@ function asNonEmptyString(
     return null;
   }
 
-  const normalizedValue = value.trim();
+  const normalizedValue =
+    value.trim();
 
-  return normalizedValue ||
-    null;
+  return normalizedValue || null;
 }
 
 function parseLimit(
   value: unknown
 ): number {
-  const normalizedValue = Number(value);
+  const normalizedValue =
+    Number(value);
 
   if (
     !Number.isInteger(normalizedValue) ||
@@ -69,7 +79,10 @@ function parseLimit(
     return 50;
   }
 
-  return normalizedValue;
+  return Math.min(
+    normalizedValue,
+    200
+  );
 }
 
 function isInteractionStatus(
@@ -101,7 +114,10 @@ function asMetadata(
 
 app.get(
   "/health",
-  (_request: Request, response: Response) => {
+  (
+    _request: Request,
+    response: Response
+  ) => {
     response.json({
       status: "ok",
       service:
@@ -114,7 +130,10 @@ app.get(
 
 app.get(
   "/api/config",
-  (_request: Request, response: Response) => {
+  (
+    _request: Request,
+    response: Response
+  ) => {
     response.json(
       getRuntimeConfig()
     );
@@ -123,7 +142,10 @@ app.get(
 
 app.get(
   "/api/functions",
-  (_request: Request, response: Response) => {
+  (
+    _request: Request,
+    response: Response
+  ) => {
     const functions =
       getContractFunctions();
 
@@ -134,12 +156,177 @@ app.get(
   }
 );
 
+app.post(
+  "/api/users",
+  async (
+    request: Request,
+    response: Response,
+    next: NextFunction
+  ) => {
+    const body = request.body as
+      Record<string, unknown>;
+
+    const name =
+      asNonEmptyString(body.name);
+
+    const email =
+      asNonEmptyString(body.email);
+
+    const walletAddress =
+      asNonEmptyString(
+        body.walletAddress
+      );
+
+    if (
+      !name ||
+      !email ||
+      !walletAddress
+    ) {
+      response.status(400).json({
+        error:
+          "name, email, and walletAddress are required.",
+      });
+
+      return;
+    }
+
+    if (!isValidUserName(name)) {
+      response.status(400).json({
+        error:
+          "Name must contain between 2 and 120 characters.",
+      });
+
+      return;
+    }
+
+    if (!isValidEmail(email)) {
+      response.status(400).json({
+        error:
+          "A valid email address is required.",
+      });
+
+      return;
+    }
+
+    if (
+      !isValidWalletAddress(
+        walletAddress
+      )
+    ) {
+      response.status(400).json({
+        error:
+          "A valid Stellar wallet address is required.",
+      });
+
+      return;
+    }
+
+    try {
+      const user =
+        await registerUser({
+          name,
+          email,
+          walletAddress,
+        });
+
+      response.status(201).json({
+        user,
+      });
+    }
+    catch (error) {
+      next(error);
+    }
+  }
+);
+
+app.get(
+  "/api/users",
+  async (
+    request: Request,
+    response: Response,
+    next: NextFunction
+  ) => {
+    try {
+      const users =
+        await listUsers(
+          parseLimit(
+            request.query.limit
+          )
+        );
+
+      response.json({
+        count: users.length,
+        users,
+      });
+    }
+    catch (error) {
+      next(error);
+    }
+  }
+);
+
+app.get(
+  "/api/users/:walletAddress",
+  async (
+    request: Request,
+    response: Response,
+    next: NextFunction
+  ) => {
+    const walletAddress =
+      asNonEmptyString(
+        request.params.walletAddress
+      );
+
+    if (
+      !walletAddress ||
+      !isValidWalletAddress(
+        walletAddress
+      )
+    ) {
+      response.status(400).json({
+        error:
+          "A valid Stellar wallet address is required.",
+      });
+
+      return;
+    }
+
+    try {
+      const user =
+        await getUserByWallet(
+          walletAddress
+        );
+
+      if (!user) {
+        response.status(404).json({
+          error:
+            "User was not found.",
+        });
+
+        return;
+      }
+
+      response.json({
+        user,
+      });
+    }
+    catch (error) {
+      next(error);
+    }
+  }
+);
+
 app.get(
   "/api/interactions",
-  (request: Request, response: Response) => {
+  (
+    request: Request,
+    response: Response
+  ) => {
     const interactions =
       listInteractions(
-        parseLimit(request.query.limit)
+        parseLimit(
+          request.query.limit
+        )
       );
 
     response.json({
@@ -151,7 +338,10 @@ app.get(
 
 app.post(
   "/api/interactions",
-  (request: Request, response: Response) => {
+  (
+    request: Request,
+    response: Response
+  ) => {
     const body = request.body as
       Record<string, unknown>;
 
@@ -188,7 +378,8 @@ app.post(
         walletAddress,
         action,
         status,
-        txHash: txHash || undefined,
+        txHash:
+          txHash || undefined,
         metadata:
           asMetadata(body.metadata),
       });
@@ -201,10 +392,15 @@ app.post(
 
 app.get(
   "/api/feedback",
-  (request: Request, response: Response) => {
+  (
+    request: Request,
+    response: Response
+  ) => {
     const feedback =
       listFeedback(
-        parseLimit(request.query.limit)
+        parseLimit(
+          request.query.limit
+        )
       );
 
     response.json({
@@ -216,7 +412,10 @@ app.get(
 
 app.post(
   "/api/feedback",
-  (request: Request, response: Response) => {
+  (
+    request: Request,
+    response: Response
+  ) => {
     const body = request.body as
       Record<string, unknown>;
 
@@ -226,9 +425,12 @@ app.post(
       );
 
     const comment =
-      asNonEmptyString(body.comment);
+      asNonEmptyString(
+        body.comment
+      );
 
-    const rating = Number(body.rating);
+    const rating =
+      Number(body.rating);
 
     if (
       !comment ||
@@ -260,7 +462,10 @@ app.post(
 
 app.get(
   "/api/analytics",
-  (_request: Request, response: Response) => {
+  (
+    _request: Request,
+    response: Response
+  ) => {
     response.json(
       getAnalyticsSummary()
     );
@@ -269,7 +474,10 @@ app.get(
 
 app.get(
   "/api/product-readiness",
-  (_request: Request, response: Response) => {
+  (
+    _request: Request,
+    response: Response
+  ) => {
     response.json(
       getProductReadiness()
     );
@@ -307,7 +515,9 @@ app.use(
   }
 );
 
-if (process.env.NODE_ENV !== "test") {
+if (
+  process.env.NODE_ENV !== "test"
+) {
   app.listen(
     port,
     () => {
