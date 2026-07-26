@@ -12,6 +12,7 @@ import {
 import {
   createOnboardingProfile,
   isValidStellarWalletAddress,
+  normalizeWalletAddress,
 } from "../utils/onboarding";
 
 function shortenWallet(
@@ -32,16 +33,25 @@ function shortenWallet(
   );
 }
 
-function getInitialValue(
-  user,
-  fieldName
+function walletMatchesUser(
+  walletAddress,
+  user
 ) {
-  const value =
-    user?.[fieldName];
+  const activeWallet =
+    normalizeWalletAddress(
+      walletAddress
+    );
 
-  return typeof value === "string"
-    ? value
-    : "";
+  const registeredWallet =
+    normalizeWalletAddress(
+      user?.walletAddress || ""
+    );
+
+  return (
+    Boolean(activeWallet) &&
+    activeWallet ===
+      registeredWallet
+  );
 }
 
 function OnboardingForm({
@@ -49,27 +59,15 @@ function OnboardingForm({
   existingUser = null,
   onRegistered,
 }) {
-  const [name, setName] =
-    useState(() =>
-      getInitialValue(
-        existingUser,
-        "name"
-      )
-    );
+  const [
+    requestState,
+    setRequestState,
+  ] = useState("idle");
 
-  const [email, setEmail] =
-    useState(() =>
-      getInitialValue(
-        existingUser,
-        "email"
-      )
-    );
-
-  const [requestState, setRequestState] =
-    useState("idle");
-
-  const [message, setMessage] =
-    useState("");
+  const [
+    errorMessage,
+    setErrorMessage,
+  ] = useState("");
 
   const walletIsValid =
     useMemo(
@@ -80,238 +78,207 @@ function OnboardingForm({
       [walletAddress]
     );
 
-  const profileIsRegistered =
-    requestState === "success" ||
-    Boolean(existingUser?.id);
+  const walletIsRegistered =
+    walletIsValid &&
+    walletMatchesUser(
+      walletAddress,
+      existingUser
+    ) &&
+    Boolean(
+      existingUser
+        ?.onboardingCompleted
+    );
 
-  async function handleSubmit(event) {
+  const registrationComplete =
+    walletIsRegistered ||
+    requestState === "success";
+
+  async function handleSubmit(
+    event
+  ) {
     event.preventDefault();
 
-    setRequestState("submitting");
-    setMessage("");
+    if (
+      registrationComplete ||
+      requestState ===
+        "submitting"
+    ) {
+      return;
+    }
+
+    setRequestState(
+      "submitting"
+    );
+
+    setErrorMessage("");
 
     try {
       const profile =
         createOnboardingProfile({
-          name,
-          email,
           walletAddress,
         });
 
       const result =
-        await registerUser(profile);
+        await registerUser(
+          profile
+        );
 
-      if (!result?.user) {
+      if (
+        !result?.user
+          ?.walletAddress
+      ) {
         throw new Error(
-          "The backend did not return a user profile."
+          "The backend did not return the registered wallet."
         );
       }
 
-      setName(result.user.name);
-      setEmail(result.user.email);
-
       setRequestState("success");
-
-      setMessage(
-        profileIsRegistered
-          ? "Your profile has been updated."
-          : "Onboarding completed successfully."
-      );
 
       if (
         typeof onRegistered ===
         "function"
       ) {
-        onRegistered(result.user);
+        onRegistered(
+          result.user
+        );
       }
     }
     catch (error) {
       setRequestState("error");
 
-      setMessage(
+      setErrorMessage(
         error instanceof Error
           ? error.message
-          : "The profile could not be saved."
+          : "The wallet could not be registered."
       );
     }
   }
 
-  const buttonLabel =
-    requestState === "submitting"
-      ? "Saving profile..."
-      : profileIsRegistered
-        ? "Update profile"
-        : "Complete onboarding";
-
   return (
     <section
-      className="onboarding-card"
+      className={
+        registrationComplete
+          ? "onboarding-card is-complete"
+          : "onboarding-card"
+      }
       aria-labelledby="onboarding-title"
     >
       <div className="onboarding-heading">
         <div>
           <span className="onboarding-step">
-            Level 5 onboarding
+            Wallet-only onboarding
           </span>
 
           <h2 id="onboarding-title">
-            Register your Testnet profile
+            {registrationComplete
+              ? "Testnet wallet registered"
+              : "Register your Testnet wallet"}
           </h2>
 
           <p>
-            Link your name and email to the
-            connected Stellar wallet before
-            using the chapter payment flow.
+            {registrationComplete
+              ? "Your wallet is ready to use Chapter Pay on Stellar Testnet."
+              : "Your connected Stellar wallet is the only identity used by Chapter Pay. No personal profile information is collected."}
           </p>
         </div>
 
         <span
           className={
-            walletIsValid
-              ? "onboarding-wallet-status is-connected"
-              : "onboarding-wallet-status"
+            registrationComplete
+              ? "onboarding-wallet-status is-registered"
+              : walletIsValid
+                ? "onboarding-wallet-status is-connected"
+                : "onboarding-wallet-status"
           }
         >
-          {walletIsValid
-            ? "Wallet ready"
-            : "Connect wallet"}
+          {registrationComplete
+            ? "Registered"
+            : walletIsValid
+              ? "Wallet ready"
+              : "Connect wallet"}
         </span>
       </div>
 
       <div className="onboarding-wallet">
-        <span>Connected wallet</span>
+        <span>
+          {registrationComplete
+            ? "Registered wallet"
+            : "Wallet identity"}
+        </span>
 
-        <strong title={walletAddress}>
-          {shortenWallet(walletAddress)}
+        <strong
+          title={walletAddress}
+        >
+          {shortenWallet(
+            walletAddress
+          )}
         </strong>
       </div>
 
-      <form
-        className="onboarding-form"
-        onSubmit={handleSubmit}
-      >
-        <label
-          className="onboarding-field"
-          htmlFor="onboarding-name"
-        >
-          <span>Name</span>
-
-          <input
-            id="onboarding-name"
-            name="name"
-            type="text"
-            value={name}
-            minLength={2}
-            maxLength={120}
-            autoComplete="name"
-            placeholder="Enter your name"
-            disabled={
-              requestState ===
-              "submitting"
-            }
-            onChange={(event) => {
-              setName(
-                event.target.value
-              );
-
-              if (
-                requestState !==
-                "idle"
-              ) {
-                setRequestState(
-                  "idle"
-                );
-
-                setMessage("");
-              }
-            }}
-            required
-          />
-        </label>
-
-        <label
-          className="onboarding-field"
-          htmlFor="onboarding-email"
-        >
-          <span>Email</span>
-
-          <input
-            id="onboarding-email"
-            name="email"
-            type="email"
-            value={email}
-            maxLength={320}
-            autoComplete="email"
-            placeholder="name@example.com"
-            disabled={
-              requestState ===
-              "submitting"
-            }
-            onChange={(event) => {
-              setEmail(
-                event.target.value
-              );
-
-              if (
-                requestState !==
-                "idle"
-              ) {
-                setRequestState(
-                  "idle"
-                );
-
-                setMessage("");
-              }
-            }}
-            required
-          />
-        </label>
-
-        <button
-          className="onboarding-submit"
-          type="submit"
-          disabled={
-            !walletIsValid ||
-            requestState ===
-              "submitting"
-          }
-        >
-          {buttonLabel}
-        </button>
-      </form>
-
-      {!walletIsValid && (
-        <p className="onboarding-hint">
-          Connect Freighter on Stellar
-          Testnet before submitting this
-          form.
-        </p>
-      )}
-
-      {message && (
-        <p
-          className={
-            requestState === "success"
-              ? "onboarding-message is-success"
-              : "onboarding-message is-error"
-          }
-          role={
-            requestState === "error"
-              ? "alert"
-              : "status"
-          }
+      {registrationComplete ? (
+        <div
+          className="onboarding-complete-summary"
+          role="status"
           aria-live="polite"
         >
-          {message}
-        </p>
+          <span
+            className="onboarding-complete-icon"
+            aria-hidden="true"
+          >
+            ✓
+          </span>
+
+          <div>
+            <strong>
+              Wallet registered successfully
+            </strong>
+
+            <p>
+              Only your public Testnet
+              wallet address is stored.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <form
+          className="onboarding-form"
+          onSubmit={handleSubmit}
+        >
+          <button
+            className="onboarding-submit"
+            type="submit"
+            disabled={
+              !walletIsValid ||
+              requestState ===
+                "submitting"
+            }
+          >
+            {requestState ===
+            "submitting"
+              ? "Registering wallet..."
+              : "Register wallet"}
+          </button>
+        </form>
       )}
 
-      <p className="onboarding-privacy">
-        Your profile is used only for
-        Level 5 user validation, activity
-        tracking, feedback and product
-        improvement.
-      </p>
+      {!registrationComplete &&
+        !walletIsValid && (
+          <p className="onboarding-hint">
+            Connect a Stellar Testnet
+            wallet before registering.
+          </p>
+        )}
+
+      {!registrationComplete &&
+        errorMessage && (
+          <p
+            className="onboarding-message is-error"
+            role="alert"
+            aria-live="polite"
+          >
+            {errorMessage}
+          </p>
+        )}
     </section>
   );
 }

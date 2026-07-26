@@ -30,10 +30,8 @@ const DATABASE_SCHEMA_STATEMENTS = [
   `
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY,
-      name VARCHAR(120) NOT NULL,
-      email VARCHAR(320) NOT NULL,
       wallet_address VARCHAR(56) NOT NULL UNIQUE,
-      onboarding_status VARCHAR(32) NOT NULL DEFAULT 'registered'
+      onboarding_status VARCHAR(32) NOT NULL DEFAULT 'wallet_connected'
         CHECK (
           onboarding_status IN (
             'registered',
@@ -42,7 +40,7 @@ const DATABASE_SCHEMA_STATEMENTS = [
             'active'
           )
         ),
-      onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE,
+      onboarding_completed BOOLEAN NOT NULL DEFAULT TRUE,
       joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       last_active_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -50,8 +48,35 @@ const DATABASE_SCHEMA_STATEMENTS = [
     )
   `,
   `
-    CREATE INDEX IF NOT EXISTS users_email_index
-      ON users (LOWER(email))
+    DROP INDEX IF EXISTS users_email_index
+  `,
+  `
+    ALTER TABLE users
+      DROP COLUMN IF EXISTS name
+  `,
+  `
+    ALTER TABLE users
+      DROP COLUMN IF EXISTS email
+  `,
+  `
+    ALTER TABLE users
+      ALTER COLUMN onboarding_status
+      SET DEFAULT 'wallet_connected'
+  `,
+  `
+    ALTER TABLE users
+      ALTER COLUMN onboarding_completed
+      SET DEFAULT TRUE
+  `,
+  `
+    UPDATE users
+    SET
+      onboarding_status = 'wallet_connected',
+      onboarding_completed = TRUE,
+      updated_at = NOW()
+    WHERE
+      onboarding_status = 'registered' AND
+      onboarding_completed = FALSE
   `,
   `
     CREATE INDEX IF NOT EXISTS users_last_active_index
@@ -63,6 +88,7 @@ const DATABASE_SCHEMA_STATEMENTS = [
       user_id UUID REFERENCES users(id) ON DELETE SET NULL,
       wallet_address VARCHAR(56) NOT NULL,
       action VARCHAR(80) NOT NULL,
+      contract_id VARCHAR(56),
       contract_function VARCHAR(80),
       status VARCHAR(20) NOT NULL
         CHECK (
@@ -79,12 +105,21 @@ const DATABASE_SCHEMA_STATEMENTS = [
     )
   `,
   `
+    ALTER TABLE interactions
+      ADD COLUMN IF NOT EXISTS contract_id VARCHAR(56)
+  `,
+  `
     CREATE INDEX IF NOT EXISTS interactions_wallet_index
       ON interactions (wallet_address, created_at DESC)
   `,
   `
     CREATE INDEX IF NOT EXISTS interactions_user_index
       ON interactions (user_id, created_at DESC)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS interactions_contract_index
+      ON interactions (contract_id, created_at DESC)
+      WHERE contract_id IS NOT NULL
   `,
   `
     CREATE INDEX IF NOT EXISTS interactions_tx_hash_index
@@ -99,7 +134,7 @@ const DATABASE_SCHEMA_STATEMENTS = [
     CREATE TABLE IF NOT EXISTS feedback (
       id UUID PRIMARY KEY,
       user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-      wallet_address VARCHAR(56),
+      wallet_address VARCHAR(56) NOT NULL,
       rating INTEGER NOT NULL
         CHECK (
           rating >= 1 AND
@@ -109,6 +144,15 @@ const DATABASE_SCHEMA_STATEMENTS = [
       improvement_category VARCHAR(80),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `,
+  `
+    DELETE FROM feedback
+    WHERE wallet_address IS NULL
+  `,
+  `
+    ALTER TABLE feedback
+      ALTER COLUMN wallet_address
+      SET NOT NULL
   `,
   `
     CREATE INDEX IF NOT EXISTS feedback_wallet_index
@@ -294,7 +338,6 @@ export function getDatabasePool(): Pool {
 
   return pool;
 }
-
 export async function withDatabaseClient<T>(
   operation: (
     client: PoolClient

@@ -1,9 +1,5 @@
 import "dotenv/config";
 
-import {
-  timingSafeEqual,
-} from "node:crypto";
-
 import cors from "cors";
 
 import express, {
@@ -11,11 +7,6 @@ import express, {
   Request,
   Response,
 } from "express";
-
-import {
-  getAdminApiKey,
-  requireAdminApiKey,
-} from "./services/adminAuth";
 
 import {
   getContractFunctions,
@@ -27,9 +18,8 @@ import {
   createFeedback,
   createInteraction,
   getAnalyticsSummary,
-  type InteractionStatus,
-  listFeedback,
-  listInteractions,
+  isInteractionStatus,
+  isValidContractId,
 } from "./services/dataService";
 
 import {
@@ -38,20 +28,16 @@ import {
 } from "./services/databaseService";
 
 import {
+  buildPublicEvidence,
+} from "./services/exportService";
+
+import {
   getLevel5Statistics,
 } from "./services/statisticsService";
 
 import {
-  createLevel5Csv,
-  createLevel5ExportFilename,
-} from "./services/exportService";
-
-import {
   getUserByWallet,
-  isValidEmail,
-  isValidUserName,
   isValidWalletAddress,
-  listUsers,
   registerUser,
 } from "./services/userService";
 
@@ -61,13 +47,69 @@ const port = Number(
   process.env.PORT || 3001
 );
 
+function getAllowedOrigins():
+string[] {
+  const configuredOrigins =
+    process.env.CORS_ORIGIN
+      ?.trim();
+
+  if (
+    !configuredOrigins ||
+    configuredOrigins === "*"
+  ) {
+    return [];
+  }
+
+  return configuredOrigins
+    .split(",")
+    .map(
+      (origin) =>
+        origin.trim()
+    )
+    .filter(Boolean);
+}
+
+const allowedOrigins =
+  getAllowedOrigins();
+
 app.disable("x-powered-by");
 
 app.use(
   cors({
-    origin:
-      process.env.CORS_ORIGIN?.trim() ||
-      "*",
+    origin: (
+      origin,
+      callback
+    ) => {
+      if (
+        !origin ||
+        allowedOrigins.length === 0 ||
+        allowedOrigins.includes(
+          origin
+        )
+      ) {
+        callback(null, true);
+        return;
+      }
+
+      callback(
+        new Error(
+          "Origin is not allowed by CORS."
+        )
+      );
+    },
+
+    methods: [
+      "GET",
+      "POST",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Accept",
+      "Content-Type",
+    ],
+
+    maxAge: 86_400,
   })
 );
 
@@ -90,35 +132,6 @@ function asNonEmptyString(
   return normalizedValue || null;
 }
 
-function parseLimit(
-  value: unknown
-): number {
-  const normalizedValue =
-    Number(value);
-
-  if (
-    !Number.isInteger(normalizedValue) ||
-    normalizedValue <= 0
-  ) {
-    return 50;
-  }
-
-  return Math.min(
-    normalizedValue,
-    200
-  );
-}
-
-function isInteractionStatus(
-  value: string
-): value is InteractionStatus {
-  return [
-    "pending",
-    "success",
-    "failed",
-  ].includes(value);
-}
-
 function asMetadata(
   value: unknown
 ): Record<string, unknown> | undefined {
@@ -134,40 +147,26 @@ function asMetadata(
     Record<string, unknown>;
 }
 
-function getExportApiKey():
-string | null {
-  return (
-    process.env.EXPORT_API_KEY
-      ?.trim() || null
-  );
+function sendValidationError(
+  response: Response,
+  message: string
+): void {
+  response.status(400).json({
+    error: message,
+  });
 }
 
-function securelyMatches(
-  expectedValue: string,
-  providedValue: string
-): boolean {
-  const expectedBuffer =
-    Buffer.from(
-      expectedValue,
-      "utf8"
-    );
+function setPublicEvidenceHeaders(
+  response: Response
+): void {
+  response.setHeader(
+    "Cache-Control",
+    "public, max-age=60, stale-while-revalidate=300"
+  );
 
-  const providedBuffer =
-    Buffer.from(
-      providedValue,
-      "utf8"
-    );
-
-  if (
-    expectedBuffer.length !==
-    providedBuffer.length
-  ) {
-    return false;
-  }
-
-  return timingSafeEqual(
-    expectedBuffer,
-    providedBuffer
+  response.setHeader(
+    "X-Content-Type-Options",
+    "nosniff"
   );
 }
 
@@ -187,6 +186,12 @@ app.get(
         isDatabaseConfigured()
           ? "postgresql"
           : "memory",
+
+      privacyModel:
+        "wallet-only",
+
+      publicEvidence:
+        "/api/evidence",
 
       timestamp:
         new Date().toISOString(),
@@ -221,7 +226,6 @@ app.get(
     });
   }
 );
-
 app.post(
   "/api/users",
   async (
@@ -232,57 +236,21 @@ app.post(
     const body = request.body as
       Record<string, unknown>;
 
-    const name =
-      asNonEmptyString(body.name);
-
-    const email =
-      asNonEmptyString(body.email);
-
     const walletAddress =
       asNonEmptyString(
         body.walletAddress
       );
 
     if (
-      !name ||
-      !email ||
-      !walletAddress
-    ) {
-      response.status(400).json({
-        error:
-          "name, email, and walletAddress are required.",
-      });
-
-      return;
-    }
-
-    if (!isValidUserName(name)) {
-      response.status(400).json({
-        error:
-          "Name must contain between 2 and 120 characters.",
-      });
-
-      return;
-    }
-
-    if (!isValidEmail(email)) {
-      response.status(400).json({
-        error:
-          "A valid email address is required.",
-      });
-
-      return;
-    }
-
-    if (
+      !walletAddress ||
       !isValidWalletAddress(
         walletAddress
       )
     ) {
-      response.status(400).json({
-        error:
-          "A valid Stellar wallet address is required.",
-      });
+      sendValidationError(
+        response,
+        "A valid Stellar wallet address is required."
+      );
 
       return;
     }
@@ -290,13 +258,20 @@ app.post(
     try {
       const user =
         await registerUser({
-          name,
-          email,
           walletAddress,
         });
 
       response.status(201).json({
-        user,
+        user: {
+          walletAddress:
+            user.walletAddress,
+
+          onboardingStatus:
+            user.onboardingStatus,
+
+          onboardingCompleted:
+            user.onboardingCompleted,
+        },
       });
     }
     catch (error) {
@@ -307,28 +282,14 @@ app.post(
 
 app.get(
   "/api/users",
-  requireAdminApiKey,
-  async (
-    request: Request,
-    response: Response,
-    next: NextFunction
+  (
+    _request: Request,
+    response: Response
   ) => {
-    try {
-      const users =
-        await listUsers(
-          parseLimit(
-            request.query.limit
-          )
-        );
-
-      response.json({
-        count: users.length,
-        users,
-      });
-    }
-    catch (error) {
-      next(error);
-    }
+    response.redirect(
+      308,
+      "/api/evidence"
+    );
   }
 );
 
@@ -350,10 +311,10 @@ app.get(
         walletAddress
       )
     ) {
-      response.status(400).json({
-        error:
-          "A valid Stellar wallet address is required.",
-      });
+      sendValidationError(
+        response,
+        "A valid Stellar wallet address is required."
+      );
 
       return;
     }
@@ -374,36 +335,16 @@ app.get(
       }
 
       response.json({
-        user,
-      });
-    }
-    catch (error) {
-      next(error);
-    }
-  }
-);
+        user: {
+          walletAddress:
+            user.walletAddress,
 
-app.get(
-  "/api/interactions",
-  requireAdminApiKey,
-  async (
-    request: Request,
-    response: Response,
-    next: NextFunction
-  ) => {
-    try {
-      const interactions =
-        await listInteractions(
-          parseLimit(
-            request.query.limit
-          )
-        );
+          onboardingStatus:
+            user.onboardingStatus,
 
-      response.json({
-        count:
-          interactions.length,
-
-        interactions,
+          onboardingCompleted:
+            user.onboardingCompleted,
+        },
       });
     }
     catch (error) {
@@ -442,6 +383,11 @@ app.post(
         body.txHash
       );
 
+    const contractId =
+      asNonEmptyString(
+        body.contractId
+      );
+
     const contractFunction =
       asNonEmptyString(
         body.contractFunction
@@ -454,14 +400,49 @@ app.post(
 
     if (
       !walletAddress ||
-      !action ||
+      !isValidWalletAddress(
+        walletAddress
+      )
+    ) {
+      sendValidationError(
+        response,
+        "A valid Stellar wallet address is required."
+      );
+
+      return;
+    }
+
+    if (!action) {
+      sendValidationError(
+        response,
+        "action is required."
+      );
+
+      return;
+    }
+
+    if (
       !status ||
       !isInteractionStatus(status)
     ) {
-      response.status(400).json({
-        error:
-          "walletAddress, action, and a valid status are required.",
-      });
+      sendValidationError(
+        response,
+        "A valid interaction status is required."
+      );
+
+      return;
+    }
+
+    if (
+      contractId &&
+      !isValidContractId(
+        contractId
+      )
+    ) {
+      sendValidationError(
+        response,
+        "A valid Stellar contract ID is required."
+      );
 
       return;
     }
@@ -475,6 +456,9 @@ app.post(
 
           txHash:
             txHash || undefined,
+
+          contractId:
+            contractId || undefined,
 
           contractFunction:
             contractFunction ||
@@ -498,34 +482,6 @@ app.post(
     }
   }
 );
-
-app.get(
-  "/api/feedback",
-  requireAdminApiKey,
-  async (
-    request: Request,
-    response: Response,
-    next: NextFunction
-  ) => {
-    try {
-      const feedback =
-        await listFeedback(
-          parseLimit(
-            request.query.limit
-          )
-        );
-
-      response.json({
-        count: feedback.length,
-        feedback,
-      });
-    }
-    catch (error) {
-      next(error);
-    }
-  }
-);
-
 app.post(
   "/api/feedback",
   async (
@@ -555,15 +511,37 @@ app.post(
       Number(body.rating);
 
     if (
-      !comment ||
+      !walletAddress ||
+      !isValidWalletAddress(
+        walletAddress
+      )
+    ) {
+      sendValidationError(
+        response,
+        "A valid Stellar wallet address is required."
+      );
+
+      return;
+    }
+
+    if (!comment) {
+      sendValidationError(
+        response,
+        "comment is required."
+      );
+
+      return;
+    }
+
+    if (
       !Number.isInteger(rating) ||
       rating < 1 ||
       rating > 5
     ) {
-      response.status(400).json({
-        error:
-          "comment and an integer rating from 1 to 5 are required.",
-      });
+      sendValidationError(
+        response,
+        "rating must be an integer from 1 to 5."
+      );
 
       return;
     }
@@ -571,10 +549,7 @@ app.post(
     try {
       const feedback =
         await createFeedback({
-          walletAddress:
-            walletAddress ||
-            undefined,
-
+          walletAddress,
           rating,
           comment,
 
@@ -633,77 +608,21 @@ app.get(
 );
 
 app.get(
-  "/api/exports/level-5.csv",
+  "/api/evidence",
   async (
-    request: Request,
+    _request: Request,
     response: Response,
     next: NextFunction
   ) => {
-    const configuredApiKey =
-      getExportApiKey();
-
-    if (!configuredApiKey) {
-      response.status(503).json({
-        error:
-          "The Level 5 export service is not configured.",
-      });
-
-      return;
-    }
-
-    const providedApiKey =
-      request
-        .get("x-export-api-key")
-        ?.trim();
-
-    if (
-      !providedApiKey ||
-      !securelyMatches(
-        configuredApiKey,
-        providedApiKey
-      )
-    ) {
-      response.status(401).json({
-        error:
-          "A valid export API key is required.",
-      });
-
-      return;
-    }
-
     try {
-      const csv =
-        await createLevel5Csv();
+      const evidence =
+        await buildPublicEvidence();
 
-      const filename =
-        createLevel5ExportFilename();
-
-      response.setHeader(
-        "Content-Type",
-        "text/csv; charset=utf-8"
+      setPublicEvidenceHeaders(
+        response
       );
 
-      response.setHeader(
-        "Content-Disposition",
-        `attachment; filename="${filename}"`
-      );
-
-      response.setHeader(
-        "Cache-Control",
-        "no-store, max-age=0"
-      );
-
-      response.setHeader(
-        "Pragma",
-        "no-cache"
-      );
-
-      response.setHeader(
-        "X-Content-Type-Options",
-        "nosniff"
-      );
-
-      response.status(200).send(csv);
+      response.json(evidence);
     }
     catch (error) {
       next(error);
@@ -742,6 +661,17 @@ app.use(
     response: Response,
     _next: NextFunction
   ) => {
+    if (
+      error.message ===
+      "Origin is not allowed by CORS."
+    ) {
+      response.status(403).json({
+        error: error.message,
+      });
+
+      return;
+    }
+
     console.error(
       "Backend request error:",
       error
@@ -766,21 +696,11 @@ Promise<void> {
     );
   }
 
-  if (
-    process.env.NODE_ENV ===
-      "production" &&
-    !getAdminApiKey()
-  ) {
-    throw new Error(
-      "ADMIN_API_KEY is required in production."
-    );
-  }
-
   if (isDatabaseConfigured()) {
     await initializeDatabase();
 
     console.log(
-      "PostgreSQL schema initialized."
+      "PostgreSQL wallet-only schema initialized."
     );
   }
 

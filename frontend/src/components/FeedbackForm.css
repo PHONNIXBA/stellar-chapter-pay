@@ -76,7 +76,8 @@
 .feedback-profile {
   display: grid;
   grid-template-columns:
-    repeat(3, minmax(0, 1fr));
+    minmax(0, 1fr)
+    minmax(180px, 0.4fr);
   gap: 12px;
 }
 
@@ -102,6 +103,11 @@
 .feedback-profile strong {
   overflow: hidden;
   color: #dce9ff;
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;

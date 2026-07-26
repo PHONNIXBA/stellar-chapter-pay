@@ -15,6 +15,7 @@ import {
 
 import {
   isValidStellarWalletAddress,
+  normalizeWalletAddress,
 } from "../utils/onboarding";
 
 function shortenWallet(
@@ -32,6 +33,20 @@ function shortenWallet(
     `${walletAddress.slice(0, 12)}` +
     "..." +
     `${walletAddress.slice(-10)}`
+  );
+}
+
+function walletMatchesUser(
+  walletAddress,
+  user
+) {
+  return (
+    normalizeWalletAddress(
+      walletAddress
+    ) ===
+    normalizeWalletAddress(
+      user?.walletAddress || ""
+    )
   );
 }
 
@@ -72,20 +87,29 @@ function FeedbackForm({
 
   const profileIsReady =
     walletIsValid &&
-    Boolean(user?.id);
+    walletMatchesUser(
+      walletAddress,
+      user
+    ) &&
+    Boolean(
+      user?.onboardingCompleted
+    );
 
   async function handleSubmit(
     event
   ) {
     event.preventDefault();
 
-    setRequestState("submitting");
+    setRequestState(
+      "submitting"
+    );
+
     setMessage("");
 
     try {
-      if (!user?.id) {
+      if (!profileIsReady) {
         throw new Error(
-          "Complete onboarding before submitting feedback."
+          "Register the connected wallet before submitting feedback."
         );
       }
 
@@ -112,7 +136,7 @@ function FeedbackForm({
       setRequestState("success");
 
       setMessage(
-        "Thank you. Your feedback has been recorded."
+        "Thank you. Your wallet feedback has been recorded."
       );
 
       if (
@@ -147,13 +171,14 @@ function FeedbackForm({
           </span>
 
           <h2 id="feedback-title">
-            Help improve Chapter Pay
+            Rate your Testnet experience
           </h2>
 
           <p>
-            Rate your Testnet experience
-            and tell us what should be
-            improved next.
+            Feedback is linked only to
+            the connected wallet and will
+            appear in the public evidence
+            table.
           </p>
         </div>
 
@@ -165,37 +190,33 @@ function FeedbackForm({
           }
         >
           {profileIsReady
-            ? "Profile ready"
-            : "Onboarding required"}
+            ? "Wallet registered"
+            : "Registration required"}
         </span>
       </div>
 
       <div className="feedback-profile">
         <div>
-          <span>User</span>
+          <span>
+            Connected wallet
+          </span>
 
-          <strong>
-            {user?.name ||
-              "Not registered"}
-          </strong>
-        </div>
-
-        <div>
-          <span>Email</span>
-
-          <strong>
-            {user?.email ||
-              "Not registered"}
-          </strong>
-        </div>
-
-        <div>
-          <span>Wallet</span>
-
-          <strong title={walletAddress}>
+          <strong
+            title={walletAddress}
+          >
             {shortenWallet(
               walletAddress
             )}
+          </strong>
+        </div>
+
+        <div>
+          <span>
+            Public identity
+          </span>
+
+          <strong>
+            Wallet address only
           </strong>
         </div>
       </div>
@@ -293,9 +314,7 @@ function FeedbackForm({
           className="feedback-field feedback-comment-field"
           htmlFor="feedback-comment"
         >
-          <span>
-            Feedback
-          </span>
+          <span>Feedback</span>
 
           <textarea
             id="feedback-comment"
@@ -343,16 +362,17 @@ function FeedbackForm({
 
       {!profileIsReady && (
         <p className="feedback-hint">
-          Connect Freighter and complete
-          the onboarding profile before
-          submitting feedback.
+          Connect and register a Stellar
+          Testnet wallet before submitting
+          feedback.
         </p>
       )}
 
       {message && (
         <p
           className={
-            requestState === "success"
+            requestState ===
+              "success"
               ? "feedback-message is-success"
               : "feedback-message is-error"
           }
@@ -368,9 +388,9 @@ function FeedbackForm({
       )}
 
       <p className="feedback-privacy">
-        Feedback is linked to the Testnet
-        wallet for product validation and
-        improvement reporting.
+        The public record contains the
+        wallet, rating, feedback and
+        verified Testnet evidence only.
       </p>
     </section>
   );

@@ -1,31 +1,3 @@
-const MIN_NAME_LENGTH = 2;
-const MAX_NAME_LENGTH = 120;
-const MAX_EMAIL_LENGTH = 320;
-
-export function normalizeOnboardingName(
-  value
-) {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  return value
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
-export function normalizeOnboardingEmail(
-  value
-) {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  return value
-    .trim()
-    .toLowerCase();
-}
-
 export function normalizeWalletAddress(
   value
 ) {
@@ -38,36 +10,6 @@ export function normalizeWalletAddress(
     .toUpperCase();
 }
 
-export function isValidOnboardingName(
-  value
-) {
-  const normalizedName =
-    normalizeOnboardingName(value);
-
-  return (
-    normalizedName.length >=
-      MIN_NAME_LENGTH &&
-    normalizedName.length <=
-      MAX_NAME_LENGTH
-  );
-}
-
-export function isValidOnboardingEmail(
-  value
-) {
-  const normalizedEmail =
-    normalizeOnboardingEmail(value);
-
-  return (
-    normalizedEmail.length > 0 &&
-    normalizedEmail.length <=
-      MAX_EMAIL_LENGTH &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-      normalizedEmail
-    )
-  );
-}
-
 export function isValidStellarWalletAddress(
   value
 ) {
@@ -77,46 +19,16 @@ export function isValidStellarWalletAddress(
 }
 
 export function createOnboardingProfile({
-  name,
-  email,
   walletAddress,
 }) {
-  const normalizedProfile = {
-    name:
-      normalizeOnboardingName(name),
-
-    email:
-      normalizeOnboardingEmail(email),
-
-    walletAddress:
-      normalizeWalletAddress(
-        walletAddress
-      ),
-  };
-
-  if (
-    !isValidOnboardingName(
-      normalizedProfile.name
-    )
-  ) {
-    throw new Error(
-      "Name must contain between 2 and 120 characters."
+  const normalizedWalletAddress =
+    normalizeWalletAddress(
+      walletAddress
     );
-  }
-
-  if (
-    !isValidOnboardingEmail(
-      normalizedProfile.email
-    )
-  ) {
-    throw new Error(
-      "Please enter a valid email address."
-    );
-  }
 
   if (
     !isValidStellarWalletAddress(
-      normalizedProfile.walletAddress
+      normalizedWalletAddress
     )
   ) {
     throw new Error(
@@ -124,5 +36,8 @@ export function createOnboardingProfile({
     );
   }
 
-  return normalizedProfile;
+  return {
+    walletAddress:
+      normalizedWalletAddress,
+  };
 }

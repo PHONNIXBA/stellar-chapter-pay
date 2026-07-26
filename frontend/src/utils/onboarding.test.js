@@ -6,67 +6,39 @@ import {
 
 import {
   createOnboardingProfile,
-  isValidOnboardingEmail,
-  isValidOnboardingName,
   isValidStellarWalletAddress,
-  normalizeOnboardingEmail,
-  normalizeOnboardingName,
+  normalizeWalletAddress,
 } from "./onboarding";
 
 const TEST_WALLET =
   `G${"A".repeat(55)}`;
 
 describe(
-  "onboarding profile helpers",
+  "wallet-only onboarding helpers",
   () => {
     it(
-      "normalizes a user name and email",
+      "normalizes a Stellar wallet address",
       () => {
         expect(
-          normalizeOnboardingName(
-            "  Test    User  "
+          normalizeWalletAddress(
+            `  ${TEST_WALLET.toLowerCase()}  `
           )
-        ).toBe("Test User");
-
-        expect(
-          normalizeOnboardingEmail(
-            " TEST.USER@EXAMPLE.COM "
-          )
-        ).toBe(
-          "test.user@example.com"
-        );
+        ).toBe(TEST_WALLET);
       }
     );
 
     it(
-      "validates supported names",
+      "returns an empty value for non-string input",
       () => {
         expect(
-          isValidOnboardingName(
-            "Test User"
-          )
-        ).toBe(true);
+          normalizeWalletAddress(null)
+        ).toBe("");
 
         expect(
-          isValidOnboardingName("A")
-        ).toBe(false);
-      }
-    );
-
-    it(
-      "validates email addresses",
-      () => {
-        expect(
-          isValidOnboardingEmail(
-            "user@example.com"
+          normalizeWalletAddress(
+            undefined
           )
-        ).toBe(true);
-
-        expect(
-          isValidOnboardingEmail(
-            "invalid-email"
-          )
-        ).toBe(false);
+        ).toBe("");
       }
     );
 
@@ -88,25 +60,14 @@ describe(
     );
 
     it(
-      "creates a normalized onboarding payload",
+      "creates a wallet-only onboarding payload",
       () => {
         expect(
           createOnboardingProfile({
-            name:
-              "  Level Five User  ",
-
-            email:
-              "LEVEL5@EXAMPLE.COM",
-
             walletAddress:
               TEST_WALLET.toLowerCase(),
           })
         ).toEqual({
-          name: "Level Five User",
-
-          email:
-            "level5@example.com",
-
           walletAddress:
             TEST_WALLET,
         });
@@ -114,15 +75,40 @@ describe(
     );
 
     it(
-      "rejects registration without a valid wallet",
+      "does not include personal information",
+      () => {
+        const profile =
+          createOnboardingProfile({
+            walletAddress:
+              TEST_WALLET,
+
+            name:
+              "This value is ignored",
+
+            email:
+              "ignored@example.com",
+          });
+
+        expect(profile).toEqual({
+          walletAddress:
+            TEST_WALLET,
+        });
+
+        expect(profile).not.toHaveProperty(
+          "name"
+        );
+
+        expect(profile).not.toHaveProperty(
+          "email"
+        );
+      }
+    );
+
+    it(
+      "rejects onboarding without a valid wallet",
       () => {
         expect(() =>
           createOnboardingProfile({
-            name: "Test User",
-
-            email:
-              "test@example.com",
-
             walletAddress: "",
           })
         ).toThrow(

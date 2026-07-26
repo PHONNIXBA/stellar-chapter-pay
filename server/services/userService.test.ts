@@ -42,27 +42,16 @@ afterAll(() => {
 });
 
 describe(
-  "user registration",
+  "wallet-only user registration",
   () => {
     it(
-      "maps a user profile to a Stellar wallet",
+      "registers a user using only a Stellar wallet",
       async () => {
         const user =
           await registerUser({
-            name: "  Test User  ",
-            email:
-              "TEST.USER@EXAMPLE.COM",
             walletAddress:
-              FIRST_WALLET,
+              FIRST_WALLET.toLowerCase(),
           });
-
-        expect(user.name).toBe(
-          "Test User"
-        );
-
-        expect(user.email).toBe(
-          "test.user@example.com"
-        );
 
         expect(
           user.walletAddress
@@ -70,31 +59,35 @@ describe(
 
         expect(
           user.onboardingStatus
-        ).toBe("registered");
+        ).toBe(
+          "wallet_connected"
+        );
 
         expect(
           user.onboardingCompleted
-        ).toBe(false);
+        ).toBe(true);
+
+        expect(user).not.toHaveProperty(
+          "name"
+        );
+
+        expect(user).not.toHaveProperty(
+          "email"
+        );
       }
     );
 
     it(
-      "updates an existing wallet without creating a duplicate user",
+      "does not create a duplicate for the same wallet",
       async () => {
         const originalUser =
           await registerUser({
-            name: "Original User",
-            email:
-              "original@example.com",
             walletAddress:
               FIRST_WALLET,
           });
 
         const updatedUser =
           await registerUser({
-            name: "Updated User",
-            email:
-              "updated@example.com",
             walletAddress:
               FIRST_WALLET,
           });
@@ -104,14 +97,8 @@ describe(
         ).toBe(originalUser.id);
 
         expect(
-          updatedUser.name
-        ).toBe("Updated User");
-
-        expect(
-          updatedUser.email
-        ).toBe(
-          "updated@example.com"
-        );
+          updatedUser.walletAddress
+        ).toBe(FIRST_WALLET);
 
         const users =
           await listUsers();
@@ -124,9 +111,6 @@ describe(
       "returns a registered user by wallet",
       async () => {
         await registerUser({
-          name: "Wallet User",
-          email:
-            "wallet@example.com",
           walletAddress:
             FIRST_WALLET,
         });
@@ -139,28 +123,32 @@ describe(
         expect(user).not.toBeNull();
 
         expect(
-          user?.email
-        ).toBe(
-          "wallet@example.com"
-        );
+          user?.walletAddress
+        ).toBe(FIRST_WALLET);
       }
     );
 
     it(
-      "lists multiple registered users",
+      "returns null for an unknown wallet",
+      async () => {
+        const user =
+          await getUserByWallet(
+            FIRST_WALLET
+          );
+
+        expect(user).toBeNull();
+      }
+    );
+
+    it(
+      "lists multiple wallets",
       async () => {
         await registerUser({
-          name: "First User",
-          email:
-            "first@example.com",
           walletAddress:
             FIRST_WALLET,
         });
 
         await registerUser({
-          name: "Second User",
-          email:
-            "second@example.com",
           walletAddress:
             SECOND_WALLET,
         });
@@ -169,6 +157,18 @@ describe(
           await listUsers();
 
         expect(users).toHaveLength(2);
+
+        expect(
+          users.map(
+            (user) =>
+              user.walletAddress
+          )
+        ).toEqual(
+          expect.arrayContaining([
+            FIRST_WALLET,
+            SECOND_WALLET,
+          ])
+        );
       }
     );
 
@@ -177,9 +177,6 @@ describe(
       async () => {
         await expect(
           registerUser({
-            name: "Invalid Wallet",
-            email:
-              "invalid@example.com",
             walletAddress:
               "NOT_A_STELLAR_WALLET",
           })
@@ -192,15 +189,12 @@ describe(
 );
 
 describe(
-  "user onboarding activity",
+  "wallet activity",
   () => {
     it(
-      "marks a registered user as wallet connected",
+      "marks a wallet as connected",
       async () => {
         await registerUser({
-          name: "Connected User",
-          email:
-            "connected@example.com",
           walletAddress:
             FIRST_WALLET,
         });
@@ -219,7 +213,7 @@ describe(
 
         expect(
           user?.onboardingCompleted
-        ).toBe(false);
+        ).toBe(true);
 
         expect(
           user?.lastActiveAt
@@ -228,12 +222,9 @@ describe(
     );
 
     it(
-      "marks a successful product user as active",
+      "marks a verified product wallet as active",
       async () => {
         await registerUser({
-          name: "Active User",
-          email:
-            "active@example.com",
           walletAddress:
             FIRST_WALLET,
         });
@@ -259,7 +250,7 @@ describe(
     );
 
     it(
-      "returns null when activity belongs to an unregistered wallet",
+      "returns null for activity from an unknown wallet",
       async () => {
         const user =
           await markUserActivity(

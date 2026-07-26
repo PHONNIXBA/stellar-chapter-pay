@@ -30,9 +30,11 @@ const FIRST_WALLET =
 const SECOND_WALLET =
   `G${"E".repeat(55)}`;
 
+const TEST_CONTRACT =
+  `C${"F".repeat(55)}`;
+
 beforeEach(() => {
   delete process.env.DATABASE_URL;
-
   clearDataForTests();
   clearUsersForTests();
 });
@@ -51,27 +53,17 @@ afterAll(() => {
 });
 
 describe(
-  "Level 5 statistics",
+  "Level 5 wallet statistics",
   () => {
     it(
-      "combines registered users, transactions and feedback",
+      "combines wallets, transactions and feedback",
       async () => {
         await registerUser({
-          name: "First User",
-
-          email:
-            "first@example.com",
-
           walletAddress:
             FIRST_WALLET,
         });
 
         await registerUser({
-          name: "Second User",
-
-          email:
-            "second@example.com",
-
           walletAddress:
             SECOND_WALLET,
         });
@@ -92,6 +84,9 @@ describe(
 
           action:
             "chapters_unlocked",
+
+          contractId:
+            TEST_CONTRACT,
 
           contractFunction:
             "unlock_with_payment",
@@ -127,13 +122,11 @@ describe(
         ).toBe(1);
 
         expect(
-          statistics
-            .totalInteractions
+          statistics.totalInteractions
         ).toBe(2);
 
         expect(
-          statistics
-            .successfulTransactions
+          statistics.successfulTransactions
         ).toBe(1);
 
         expect(
@@ -155,7 +148,7 @@ describe(
     );
 
     it(
-      "returns zero values when no activity exists",
+      "returns zero values when no wallet activity exists",
       async () => {
         const statistics =
           await getLevel5Statistics();

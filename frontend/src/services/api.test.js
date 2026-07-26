@@ -9,11 +9,18 @@ import {
 } from "vitest";
 
 import {
+  fetchPublicEvidence,
   fetchUserByWallet,
-  fetchUsers,
   registerUser,
   requestJson,
 } from "./api";
+
+const EXPECTED_API_BASE_URL =
+  import.meta.env
+    .VITE_API_BASE_URL
+    ?.trim()
+    ?.replace(/\/+$/, "") ||
+  "http://localhost:3001";
 
 function createJsonResponse(
   body,
@@ -47,7 +54,7 @@ function createJsonResponse(
 }
 
 describe(
-  "frontend API service",
+  "frontend wallet-only API service",
   () => {
     let fetchMock;
 
@@ -61,13 +68,17 @@ describe(
     });
 
     it(
-      "registers a normalized user profile",
+      "registers only a normalized wallet address",
       async () => {
         fetchMock.mockResolvedValue(
           createJsonResponse(
             {
               user: {
-                id: "user-1",
+                walletAddress:
+                  "GABC123",
+
+                onboardingCompleted:
+                  true,
               },
             },
             201
@@ -75,26 +86,28 @@ describe(
         );
 
         await registerUser({
-          name: "  Test User  ",
+          walletAddress:
+            "  gabc123  ",
+
+          name:
+            "Ignored name",
 
           email:
-            "TEST.USER@EXAMPLE.COM",
-
-          walletAddress:
-            "gabc123",
+            "ignored@example.com",
         });
 
-        expect(fetchMock).toHaveBeenCalledTimes(
-          1
-        );
+        expect(
+          fetchMock
+        ).toHaveBeenCalledTimes(1);
 
         const [
           requestUrl,
           requestOptions,
-        ] = fetchMock.mock.calls[0];
+        ] =
+          fetchMock.mock.calls[0];
 
         expect(requestUrl).toBe(
-          "http://localhost:3001/api/users"
+          `${EXPECTED_API_BASE_URL}/api/users`
         );
 
         expect(
@@ -106,11 +119,6 @@ describe(
             requestOptions.body
           )
         ).toEqual({
-          name: "Test User",
-
-          email:
-            "test.user@example.com",
-
           walletAddress:
             "GABC123",
         });
@@ -118,12 +126,13 @@ describe(
     );
 
     it(
-      "loads a user by an encoded wallet value",
+      "loads a wallet profile using an encoded address",
       async () => {
         fetchMock.mockResolvedValue(
           createJsonResponse({
             user: {
-              id: "user-1",
+              walletAddress:
+                "GABC/TEST",
             },
           })
         );
@@ -132,8 +141,10 @@ describe(
           "GABC/TEST"
         );
 
-        expect(fetchMock).toHaveBeenCalledWith(
-          "http://localhost:3001/api/users/GABC%2FTEST",
+        expect(
+          fetchMock
+        ).toHaveBeenCalledWith(
+          `${EXPECTED_API_BASE_URL}/api/users/GABC%2FTEST`,
           expect.objectContaining({
             method: "GET",
           })
@@ -142,19 +153,26 @@ describe(
     );
 
     it(
-      "caps list requests at 200 records",
+      "loads the public evidence table",
       async () => {
         fetchMock.mockResolvedValue(
           createJsonResponse({
             count: 0,
-            users: [],
+
+            summary: {
+              totalWallets: 0,
+            },
+
+            records: [],
           })
         );
 
-        await fetchUsers(500);
+        await fetchPublicEvidence();
 
-        expect(fetchMock).toHaveBeenCalledWith(
-          "http://localhost:3001/api/users?limit=200",
+        expect(
+          fetchMock
+        ).toHaveBeenCalledWith(
+          `${EXPECTED_API_BASE_URL}/api/evidence`,
           expect.objectContaining({
             method: "GET",
           })
@@ -162,14 +180,16 @@ describe(
       }
     );
 
+
+
     it(
-      "surfaces a backend validation error",
+      "surfaces a backend wallet validation error",
       async () => {
         fetchMock.mockResolvedValue(
           createJsonResponse(
             {
               error:
-                "A valid email address is required.",
+                "A valid Stellar wallet address is required.",
             },
             400
           )
@@ -177,13 +197,11 @@ describe(
 
         await expect(
           registerUser({
-            name: "Test User",
-            email: "invalid-email",
             walletAddress:
-              "GABC123",
+              "INVALID",
           })
         ).rejects.toThrow(
-          "A valid email address is required."
+          "A valid Stellar wallet address is required."
         );
       }
     );
