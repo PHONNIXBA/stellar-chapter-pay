@@ -1,0 +1,129 @@
+.level5-stats {
+  display: grid;
+  gap: 20px;
+  padding: 24px;
+  border: 1px solid rgba(154, 177, 218, 0.14);
+  border-radius: 22px;
+  background: rgba(10, 23, 45, 0.9);
+  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.18);
+}
+
+.level5-stats-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.level5-stats-kicker,
+.level5-stats-description {
+  margin: 0;
+}
+
+.level5-stats-kicker {
+  color: #75baff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.level5-stats-header h2 {
+  margin: 7px 0 0;
+  color: #edf4ff;
+  font-size: 24px;
+}
+
+.level5-stats-description {
+  max-width: 680px;
+  margin-top: 9px;
+  color: #899bb5;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.level5-stats-updated {
+  flex: 0 0 auto;
+  padding: 8px 11px;
+  border: 1px solid rgba(154, 177, 218, 0.16);
+  border-radius: 999px;
+  background: rgba(154, 177, 218, 0.07);
+  color: #afbed6;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.level5-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.level5-stat-card {
+  display: grid;
+  gap: 7px;
+  padding: 18px;
+  border: 1px solid rgba(154, 177, 218, 0.12);
+  border-radius: 16px;
+  background: #081426;
+}
+
+.level5-stat-card p {
+  margin: 0;
+  color: #8294af;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.level5-stat-card strong {
+  color: #edf4ff;
+  font-size: 30px;
+  font-weight: 800;
+}
+
+.level5-stat-card span {
+  color: #7f91ab;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.level5-stats-message {
+  margin: 0;
+  padding: 16px;
+  border-radius: 14px;
+  background: #081426;
+  color: #9eafc9;
+  font-size: 13px;
+}
+
+.level5-stats-message.is-error {
+  border: 1px solid rgba(255, 105, 125, 0.25);
+  color: #ffc4ce;
+}
+
+@media (max-width: 900px) {
+  .level5-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .level5-stats-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .level5-stats-updated {
+    align-self: flex-start;
+  }
+
+  .level5-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .level5-stats {
+    padding: 20px 16px;
+  }
+}
