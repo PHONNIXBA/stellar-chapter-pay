@@ -1,7 +1,12 @@
-import { signTransaction } from "@stellar/freighter-api";
 import * as StellarSDK from "@stellar/stellar-sdk";
 
-import { STELLAR_NETWORK } from "../contractConfig";
+import {
+  STELLAR_NETWORK,
+} from "../contractConfig";
+
+import {
+  signWalletTransaction,
+} from "./wallet";
 
 const DEFAULT_POLL_INTERVAL_MS = 1200;
 const DEFAULT_MAX_POLLS = 60;
@@ -236,19 +241,14 @@ export async function invokeSignedContract({
     );
 
   const signedResult =
-    await signTransaction(
-      preparedTransaction.toXDR(),
-      {
-        networkPassphrase:
-          STELLAR_NETWORK.networkPassphrase,
-        address: walletAddress,
-      }
-    );
+    await signWalletTransaction({
+      transactionXdr:
+        preparedTransaction.toXDR(),
 
-  if (
-    signedResult.error ||
-    !signedResult.signedTxXdr
-  ) {
+      walletAddress,
+    });
+
+  if (!signedResult.signedTxXdr) {
     throw new Error(
       "Transaction signing was cancelled or rejected."
     );
