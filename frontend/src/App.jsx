@@ -15,6 +15,7 @@ import {
 import "./App.css";
 
 import OnboardingForm from "./components/OnboardingForm";
+import FeedbackForm from "./components/FeedbackForm";
 
 import {
   createTransactionExplorerUrl,
@@ -1760,6 +1761,69 @@ function App() {
               </div>
             )}
           </article>
+        </section>
+
+        <section className="feedback-wrapper">
+          <FeedbackForm
+            key={
+              `${walletAddress}:` +
+              `${
+                onboardingUser?.id ||
+                "unregistered"
+              }`
+            }
+            walletAddress={
+              isWalletConnected
+                ? walletAddress
+                : ""
+            }
+            user={onboardingUser}
+            onSubmitted={(feedback) => {
+              const feedbackWallet =
+                feedback.walletAddress ||
+                walletAddress;
+
+              recordActivity(
+                "feedback_submitted",
+                {
+                  walletAddress:
+                    feedbackWallet,
+
+                  rating:
+                    feedback.rating,
+
+                  improvementCategory:
+                    feedback
+                      .improvementCategory,
+                }
+              );
+
+              void recordRemoteInteraction({
+                walletAddress:
+                  feedbackWallet,
+
+                action:
+                  "feedback_submitted",
+
+                status: "success",
+
+                network:
+                  STELLAR_NETWORK.name,
+
+                metadata: {
+                  feedbackId:
+                    feedback.id,
+
+                  rating:
+                    feedback.rating,
+
+                  improvementCategory:
+                    feedback
+                      .improvementCategory,
+                },
+              });
+            }}
+          />
         </section>
 
         <footer className="app-footer">

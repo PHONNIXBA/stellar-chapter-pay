@@ -337,7 +337,8 @@
   cursor: pointer;
 }
 
-.onboarding-wrapper {
+.onboarding-wrapper,
+.feedback-wrapper {
   margin-top: 18px;
 }
 
