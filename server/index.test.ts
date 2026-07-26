@@ -521,6 +521,103 @@ describe(
     );
 
     it(
+      "returns Level 5 product statistics",
+      async () => {
+        await request(app)
+          .post("/api/users")
+          .send({
+            name:
+              "Statistics User",
+
+            email:
+              "statistics@example.com",
+
+            walletAddress:
+              FIRST_WALLET,
+          })
+          .expect(201);
+
+        await request(app)
+          .post("/api/interactions")
+          .send({
+            walletAddress:
+              FIRST_WALLET,
+
+            action:
+              "chapters_unlocked",
+
+            contractFunction:
+              "unlock_with_payment",
+
+            status:
+              "success",
+
+            txHash:
+              "statistics-testnet-hash",
+          })
+          .expect(201);
+
+        await request(app)
+          .post("/api/feedback")
+          .send({
+            walletAddress:
+              FIRST_WALLET,
+
+            rating: 5,
+
+            comment:
+              "The Level 5 dashboard was clear.",
+
+            improvementCategory:
+              "ui-ux",
+          })
+          .expect(201);
+
+        const response =
+          await request(app)
+            .get(
+              "/api/statistics/level-5"
+            )
+            .expect(200);
+
+        expect(
+          response.body.stats
+            .totalUsers
+        ).toBe(1);
+
+        expect(
+          response.body.stats
+            .activeUsers
+        ).toBe(1);
+
+        expect(
+          response.body.stats
+            .totalInteractions
+        ).toBe(1);
+
+        expect(
+          response.body.stats
+            .successfulTransactions
+        ).toBe(1);
+
+        expect(
+          response.body.stats
+            .feedbackCount
+        ).toBe(1);
+
+        expect(
+          response.body.stats
+            .averageRating
+        ).toBe(5);
+
+        expect(
+          typeof response.body.stats
+            .updatedAt
+        ).toBe("string");
+      }
+    );
+
+    it(
       "returns product readiness information",
       async () => {
         const response =

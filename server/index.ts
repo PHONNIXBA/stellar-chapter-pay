@@ -33,6 +33,10 @@ import {
 } from "./services/databaseService";
 
 import {
+  getLevel5Statistics,
+} from "./services/statisticsService";
+
+import {
   createLevel5Csv,
   createLevel5ExportFilename,
 } from "./services/exportService";
@@ -592,6 +596,27 @@ app.get(
       response.json(
         await getAnalyticsSummary()
       );
+    }
+    catch (error) {
+      next(error);
+    }
+  }
+);
+
+app.get(
+  "/api/statistics/level-5",
+  async (
+    _request: Request,
+    response: Response,
+    next: NextFunction
+  ) => {
+    try {
+      const stats =
+        await getLevel5Statistics();
+
+      response.json({
+        stats,
+      });
     }
     catch (error) {
       next(error);
