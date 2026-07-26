@@ -1279,7 +1279,7 @@ function App() {
                 setConfigError("");
               }}
             >
-              Ã—
+              {"\u00D7"}
             </button>
           </section>
         )}
@@ -1474,7 +1474,8 @@ function App() {
                 </div>
 
                 <p className="price-formula">
-                  {quantityNumber} Ã—{" "}
+                  {quantityNumber}{" "}
+                  {"\u00D7"}{" "}
                   {normalizedPrice}
                 </p>
               </div>
