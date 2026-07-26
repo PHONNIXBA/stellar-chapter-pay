@@ -13,6 +13,11 @@ import express, {
 } from "express";
 
 import {
+  getAdminApiKey,
+  requireAdminApiKey,
+} from "./services/adminAuth";
+
+import {
   getContractFunctions,
   getProductReadiness,
   getRuntimeConfig,
@@ -302,6 +307,7 @@ app.post(
 
 app.get(
   "/api/users",
+  requireAdminApiKey,
   async (
     request: Request,
     response: Response,
@@ -379,6 +385,7 @@ app.get(
 
 app.get(
   "/api/interactions",
+  requireAdminApiKey,
   async (
     request: Request,
     response: Response,
@@ -494,6 +501,7 @@ app.post(
 
 app.get(
   "/api/feedback",
+  requireAdminApiKey,
   async (
     request: Request,
     response: Response,
@@ -755,6 +763,16 @@ Promise<void> {
   ) {
     throw new Error(
       "DATABASE_URL is required in production."
+    );
+  }
+
+  if (
+    process.env.NODE_ENV ===
+      "production" &&
+    !getAdminApiKey()
+  ) {
+    throw new Error(
+      "ADMIN_API_KEY is required in production."
     );
   }
 

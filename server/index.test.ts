@@ -24,6 +24,12 @@ const ORIGINAL_DATABASE_URL =
 const ORIGINAL_EXPORT_API_KEY =
   process.env.EXPORT_API_KEY;
 
+const ORIGINAL_ADMIN_API_KEY =
+  process.env.ADMIN_API_KEY;
+
+const TEST_ADMIN_API_KEY =
+  "test-admin-api-key";
+
 const FIRST_WALLET =
   `G${"A".repeat(55)}`;
 
@@ -32,6 +38,9 @@ beforeEach(() => {
 
   process.env.EXPORT_API_KEY =
     "test-export-api-key";
+
+  process.env.ADMIN_API_KEY =
+    TEST_ADMIN_API_KEY;
 
   clearDataForTests();
   clearUsersForTests();
@@ -58,6 +67,17 @@ afterAll(() => {
   else {
     process.env.EXPORT_API_KEY =
       ORIGINAL_EXPORT_API_KEY;
+  }
+
+  if (
+    ORIGINAL_ADMIN_API_KEY ===
+    undefined
+  ) {
+    delete process.env.ADMIN_API_KEY;
+  }
+  else {
+    process.env.ADMIN_API_KEY =
+      ORIGINAL_ADMIN_API_KEY;
   }
 });
 
@@ -255,6 +275,10 @@ describe(
         const response =
           await request(app)
             .get("/api/users")
+            .set(
+              "x-admin-api-key",
+              TEST_ADMIN_API_KEY
+            )
             .expect(200);
 
         expect(
@@ -386,6 +410,10 @@ describe(
           await request(app)
             .get(
               "/api/interactions"
+            )
+            .set(
+              "x-admin-api-key",
+              TEST_ADMIN_API_KEY
             )
             .expect(200);
 
@@ -642,6 +670,94 @@ describe(
           response.body.checks
             .frontendIntegration
         ).toBe(true);
+      }
+    );
+  }
+);
+
+describe(
+  "protected admin endpoints",
+  () => {
+    it(
+      "rejects requests without an admin key",
+      async () => {
+        const response =
+          await request(app)
+            .get("/api/users")
+            .expect(401);
+
+        expect(
+          response.body.error
+        ).toContain(
+          "valid admin API key"
+        );
+      }
+    );
+
+    it(
+      "rejects requests with an invalid admin key",
+      async () => {
+        const response =
+          await request(app)
+            .get(
+              "/api/interactions"
+            )
+            .set(
+              "x-admin-api-key",
+              "wrong-admin-key"
+            )
+            .expect(401);
+
+        expect(
+          response.body.error
+        ).toContain(
+          "valid admin API key"
+        );
+      }
+    );
+
+    it(
+      "reports when admin access is not configured",
+      async () => {
+        delete process.env
+          .ADMIN_API_KEY;
+
+        const response =
+          await request(app)
+            .get("/api/feedback")
+            .set(
+              "x-admin-api-key",
+              TEST_ADMIN_API_KEY
+            )
+            .expect(503);
+
+        expect(
+          response.body.error
+        ).toContain(
+          "not configured"
+        );
+      }
+    );
+
+    it(
+      "allows access with a valid admin key",
+      async () => {
+        const response =
+          await request(app)
+            .get("/api/feedback")
+            .set(
+              "x-admin-api-key",
+              TEST_ADMIN_API_KEY
+            )
+            .expect(200);
+
+        expect(
+          response.body.count
+        ).toBe(0);
+
+        expect(
+          response.body.feedback
+        ).toEqual([]);
       }
     );
   }
