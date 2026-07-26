@@ -1,5 +1,9 @@
 import "dotenv/config";
 
+import {
+  timingSafeEqual,
+} from "node:crypto";
+
 import cors from "cors";
 
 import express, {
@@ -27,6 +31,11 @@ import {
   initializeDatabase,
   isDatabaseConfigured,
 } from "./services/databaseService";
+
+import {
+  createLevel5Csv,
+  createLevel5ExportFilename,
+} from "./services/exportService";
 
 import {
   getUserByWallet,
@@ -114,6 +123,43 @@ function asMetadata(
 
   return value as
     Record<string, unknown>;
+}
+
+function getExportApiKey():
+string | null {
+  return (
+    process.env.EXPORT_API_KEY
+      ?.trim() || null
+  );
+}
+
+function securelyMatches(
+  expectedValue: string,
+  providedValue: string
+): boolean {
+  const expectedBuffer =
+    Buffer.from(
+      expectedValue,
+      "utf8"
+    );
+
+  const providedBuffer =
+    Buffer.from(
+      providedValue,
+      "utf8"
+    );
+
+  if (
+    expectedBuffer.length !==
+    providedBuffer.length
+  ) {
+    return false;
+  }
+
+  return timingSafeEqual(
+    expectedBuffer,
+    providedBuffer
+  );
 }
 
 app.get(
@@ -546,6 +592,85 @@ app.get(
       response.json(
         await getAnalyticsSummary()
       );
+    }
+    catch (error) {
+      next(error);
+    }
+  }
+);
+
+app.get(
+  "/api/exports/level-5.csv",
+  async (
+    request: Request,
+    response: Response,
+    next: NextFunction
+  ) => {
+    const configuredApiKey =
+      getExportApiKey();
+
+    if (!configuredApiKey) {
+      response.status(503).json({
+        error:
+          "The Level 5 export service is not configured.",
+      });
+
+      return;
+    }
+
+    const providedApiKey =
+      request
+        .get("x-export-api-key")
+        ?.trim();
+
+    if (
+      !providedApiKey ||
+      !securelyMatches(
+        configuredApiKey,
+        providedApiKey
+      )
+    ) {
+      response.status(401).json({
+        error:
+          "A valid export API key is required.",
+      });
+
+      return;
+    }
+
+    try {
+      const csv =
+        await createLevel5Csv();
+
+      const filename =
+        createLevel5ExportFilename();
+
+      response.setHeader(
+        "Content-Type",
+        "text/csv; charset=utf-8"
+      );
+
+      response.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+      );
+
+      response.setHeader(
+        "Cache-Control",
+        "no-store, max-age=0"
+      );
+
+      response.setHeader(
+        "Pragma",
+        "no-cache"
+      );
+
+      response.setHeader(
+        "X-Content-Type-Options",
+        "nosniff"
+      );
+
+      response.status(200).send(csv);
     }
     catch (error) {
       next(error);

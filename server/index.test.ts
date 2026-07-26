@@ -11,17 +11,29 @@ import {
 import { app } from "./index";
 
 import {
+  clearDataForTests,
+} from "./services/dataService";
+
+import {
   clearUsersForTests,
 } from "./services/userService";
 
 const ORIGINAL_DATABASE_URL =
   process.env.DATABASE_URL;
 
+const ORIGINAL_EXPORT_API_KEY =
+  process.env.EXPORT_API_KEY;
+
 const FIRST_WALLET =
   `G${"A".repeat(55)}`;
 
 beforeEach(() => {
   delete process.env.DATABASE_URL;
+
+  process.env.EXPORT_API_KEY =
+    "test-export-api-key";
+
+  clearDataForTests();
   clearUsersForTests();
 });
 
@@ -31,11 +43,22 @@ afterAll(() => {
     undefined
   ) {
     delete process.env.DATABASE_URL;
-    return;
+  }
+  else {
+    process.env.DATABASE_URL =
+      ORIGINAL_DATABASE_URL;
   }
 
-  process.env.DATABASE_URL =
-    ORIGINAL_DATABASE_URL;
+  if (
+    ORIGINAL_EXPORT_API_KEY ===
+    undefined
+  ) {
+    delete process.env.EXPORT_API_KEY;
+  }
+  else {
+    process.env.EXPORT_API_KEY =
+      ORIGINAL_EXPORT_API_KEY;
+  }
 });
 
 describe(
@@ -58,6 +81,10 @@ describe(
         ).toBe(
           "stellar-chapter-pay-server"
         );
+
+        expect(
+          response.body.storage
+        ).toBe("memory");
 
         expect(
           typeof response.body
@@ -147,8 +174,10 @@ describe(
             .post("/api/users")
             .send({
               name: "Test User",
+
               email:
                 "TEST.USER@EXAMPLE.COM",
+
               walletAddress:
                 FIRST_WALLET,
             })
@@ -183,8 +212,10 @@ describe(
           .post("/api/users")
           .send({
             name: "Wallet User",
+
             email:
               "wallet@example.com",
+
             walletAddress:
               FIRST_WALLET,
           })
@@ -212,8 +243,10 @@ describe(
           .post("/api/users")
           .send({
             name: "List User",
+
             email:
               "list@example.com",
+
             walletAddress:
               FIRST_WALLET,
           })
@@ -242,8 +275,10 @@ describe(
             .post("/api/users")
             .send({
               name: "Invalid User",
+
               email:
                 "invalid@example.com",
+
               walletAddress:
                 "INVALID_WALLET",
             })
@@ -290,12 +325,21 @@ describe(
             )
             .send({
               walletAddress:
-                "GTESTWALLETADDRESS",
+                FIRST_WALLET,
+
               action:
                 "chapters_unlocked",
+
+              contractFunction:
+                "unlock_with_payment",
+
               status: "success",
+
               txHash:
                 "test-transaction-hash",
+
+              network: "TESTNET",
+
               metadata: {
                 quantity: 3,
                 totalPrice: 15,
@@ -306,16 +350,7 @@ describe(
         expect(
           response.body.interaction
             .walletAddress
-        ).toBe(
-          "GTESTWALLETADDRESS"
-        );
-
-        expect(
-          response.body.interaction
-            .action
-        ).toBe(
-          "chapters_unlocked"
-        );
+        ).toBe(FIRST_WALLET);
 
         expect(
           response.body.interaction
@@ -334,6 +369,19 @@ describe(
     it(
       "returns recorded interactions",
       async () => {
+        await request(app)
+          .post("/api/interactions")
+          .send({
+            walletAddress:
+              FIRST_WALLET,
+
+            action:
+              "wallet_connected",
+
+            status: "success",
+          })
+          .expect(201);
+
         const response =
           await request(app)
             .get(
@@ -342,17 +390,12 @@ describe(
             .expect(200);
 
         expect(
-          Array.isArray(
-            response.body
-              .interactions
-          )
-        ).toBe(true);
+          response.body.count
+        ).toBe(1);
 
         expect(
-          response.body.count
-        ).toBeGreaterThanOrEqual(
-          1
-        );
+          response.body.interactions
+        ).toHaveLength(1);
       }
     );
 
@@ -367,6 +410,7 @@ describe(
             .send({
               action:
                 "chapters_unlocked",
+
               status: "unknown",
             })
             .expect(400);
@@ -392,10 +436,15 @@ describe(
             .post("/api/feedback")
             .send({
               walletAddress:
-                "GTESTWALLETADDRESS",
+                FIRST_WALLET,
+
               rating: 5,
+
               comment:
                 "The bulk chapter payment flow was clear.",
+
+              improvementCategory:
+                "onboarding",
             })
             .expect(201);
 
@@ -406,10 +455,8 @@ describe(
 
         expect(
           response.body.feedback
-            .comment
-        ).toContain(
-          "chapter payment"
-        );
+            .improvementCategory
+        ).toBe("onboarding");
       }
     );
 
@@ -435,6 +482,22 @@ describe(
     it(
       "returns an analytics summary",
       async () => {
+        await request(app)
+          .post("/api/interactions")
+          .send({
+            walletAddress:
+              FIRST_WALLET,
+
+            action:
+              "chapters_unlocked",
+
+            status: "success",
+
+            txHash:
+              "analytics-test-hash",
+          })
+          .expect(201);
+
         const response =
           await request(app)
             .get("/api/analytics")
@@ -443,21 +506,17 @@ describe(
         expect(
           response.body
             .totalInteractions
-        ).toBeGreaterThanOrEqual(
-          1
-        );
+        ).toBe(1);
 
         expect(
           response.body
-            .totalFeedback
-        ).toBeGreaterThanOrEqual(
-          1
-        );
+            .successfulTransactions
+        ).toBe(1);
 
         expect(
-          typeof response.body
-            .averageRating
-        ).toBe("number");
+          response.body
+            .verifiedActiveWallets
+        ).toBe(1);
       }
     );
 
@@ -486,12 +545,160 @@ describe(
           response.body.checks
             .frontendIntegration
         ).toBe(true);
+      }
+    );
+  }
+);
+
+describe(
+  "protected Level 5 export endpoint",
+  () => {
+    it(
+      "rejects a request with an invalid export key",
+      async () => {
+        const response =
+          await request(app)
+            .get(
+              "/api/exports/level-5.csv"
+            )
+            .set(
+              "x-export-api-key",
+              "wrong-key"
+            )
+            .expect(401);
 
         expect(
-          response.body
-            .functionCoverage
-            .total
-        ).toBeGreaterThan(10);
+          response.body.error
+        ).toContain(
+          "valid export API key"
+        );
+      }
+    );
+
+    it(
+      "reports when the export service is not configured",
+      async () => {
+        delete process.env
+          .EXPORT_API_KEY;
+
+        const response =
+          await request(app)
+            .get(
+              "/api/exports/level-5.csv"
+            )
+            .set(
+              "x-export-api-key",
+              "test-export-api-key"
+            )
+            .expect(503);
+
+        expect(
+          response.body.error
+        ).toContain(
+          "not configured"
+        );
+      }
+    );
+
+    it(
+      "downloads an Excel-compatible CSV with the correct key",
+      async () => {
+        await request(app)
+          .post("/api/users")
+          .send({
+            name: "Export User",
+
+            email:
+              "export@example.com",
+
+            walletAddress:
+              FIRST_WALLET,
+          })
+          .expect(201);
+
+        await request(app)
+          .post("/api/interactions")
+          .send({
+            walletAddress:
+              FIRST_WALLET,
+
+            action:
+              "chapters_unlocked",
+
+            contractFunction:
+              "unlock_with_payment",
+
+            status: "success",
+
+            txHash:
+              "export-testnet-hash",
+          })
+          .expect(201);
+
+        await request(app)
+          .post("/api/feedback")
+          .send({
+            walletAddress:
+              FIRST_WALLET,
+
+            rating: 5,
+
+            comment:
+              "Export feedback",
+
+            improvementCategory:
+              "onboarding",
+          })
+          .expect(201);
+
+        const response =
+          await request(app)
+            .get(
+              "/api/exports/level-5.csv"
+            )
+            .set(
+              "x-export-api-key",
+              "test-export-api-key"
+            )
+            .expect(200);
+
+        expect(
+          response.headers[
+            "content-type"
+          ]
+        ).toContain(
+          "text/csv"
+        );
+
+        expect(
+          response.headers[
+            "content-disposition"
+          ]
+        ).toMatch(
+          /stellar-chapter-pay-level-5-\d{4}-\d{2}-\d{2}\.csv/
+        );
+
+        expect(
+          response.headers[
+            "cache-control"
+          ]
+        ).toContain("no-store");
+
+        expect(response.text).toContain(
+          "User ID,Name,Email,Wallet"
+        );
+
+        expect(response.text).toContain(
+          "export@example.com"
+        );
+
+        expect(response.text).toContain(
+          "export-testnet-hash"
+        );
+
+        expect(response.text).toContain(
+          "Export feedback"
+        );
       }
     );
   }
