@@ -1,0 +1,54 @@
+.level5-dashboard {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.level5-dashboard-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.level5-dashboard-toolbar p {
+  margin: 0;
+  color: #70839f;
+  font-size: 11px;
+}
+
+.level5-dashboard-toolbar button {
+  min-height: 38px;
+  padding: 8px 13px;
+  border:
+    1px solid
+    rgba(117, 186, 255, 0.25);
+  border-radius: 11px;
+  background:
+    rgba(75, 183, 255, 0.1);
+  color: #7fd1ff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.level5-dashboard-toolbar button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.level5-dashboard-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+@media (max-width: 680px) {
+  .level5-dashboard-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .level5-dashboard-toolbar button {
+    width: 100%;
+  }
+}

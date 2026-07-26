@@ -16,6 +16,7 @@ import "./App.css";
 
 import OnboardingForm from "./components/OnboardingForm";
 import FeedbackForm from "./components/FeedbackForm";
+import Level5Dashboard from "./components/Level5Dashboard";
 
 import {
   createTransactionExplorerUrl,
@@ -1761,6 +1762,10 @@ function App() {
               </div>
             )}
           </article>
+        </section>
+
+        <section className="level5-wrapper">
+          <Level5Dashboard />
         </section>
 
         <section className="feedback-wrapper">
