@@ -1,6 +1,7 @@
 import "dotenv/config";
 
 import cors from "cors";
+
 import express, {
   NextFunction,
   Request,
@@ -17,10 +18,15 @@ import {
   createFeedback,
   createInteraction,
   getAnalyticsSummary,
-  InteractionStatus,
+  type InteractionStatus,
   listFeedback,
   listInteractions,
 } from "./services/dataService";
+
+import {
+  initializeDatabase,
+  isDatabaseConfigured,
+} from "./services/databaseService";
 
 import {
   getUserByWallet,
@@ -106,10 +112,8 @@ function asMetadata(
     return undefined;
   }
 
-  return value as Record<
-    string,
-    unknown
-  >;
+  return value as
+    Record<string, unknown>;
 }
 
 app.get(
@@ -120,8 +124,15 @@ app.get(
   ) => {
     response.json({
       status: "ok",
+
       service:
         "stellar-chapter-pay-server",
+
+      storage:
+        isDatabaseConfigured()
+          ? "postgresql"
+          : "memory",
+
       timestamp:
         new Date().toISOString(),
     });
@@ -318,29 +329,38 @@ app.get(
 
 app.get(
   "/api/interactions",
-  (
+  async (
     request: Request,
-    response: Response
+    response: Response,
+    next: NextFunction
   ) => {
-    const interactions =
-      listInteractions(
-        parseLimit(
-          request.query.limit
-        )
-      );
+    try {
+      const interactions =
+        await listInteractions(
+          parseLimit(
+            request.query.limit
+          )
+        );
 
-    response.json({
-      count: interactions.length,
-      interactions,
-    });
+      response.json({
+        count:
+          interactions.length,
+
+        interactions,
+      });
+    }
+    catch (error) {
+      next(error);
+    }
   }
 );
 
 app.post(
   "/api/interactions",
-  (
+  async (
     request: Request,
-    response: Response
+    response: Response,
+    next: NextFunction
   ) => {
     const body = request.body as
       Record<string, unknown>;
@@ -351,13 +371,29 @@ app.post(
       );
 
     const action =
-      asNonEmptyString(body.action);
+      asNonEmptyString(
+        body.action
+      );
 
     const status =
-      asNonEmptyString(body.status);
+      asNonEmptyString(
+        body.status
+      );
 
     const txHash =
-      asNonEmptyString(body.txHash);
+      asNonEmptyString(
+        body.txHash
+      );
+
+    const contractFunction =
+      asNonEmptyString(
+        body.contractFunction
+      );
+
+    const network =
+      asNonEmptyString(
+        body.network
+      );
 
     if (
       !walletAddress ||
@@ -373,48 +409,71 @@ app.post(
       return;
     }
 
-    const interaction =
-      createInteraction({
-        walletAddress,
-        action,
-        status,
-        txHash:
-          txHash || undefined,
-        metadata:
-          asMetadata(body.metadata),
-      });
+    try {
+      const interaction =
+        await createInteraction({
+          walletAddress,
+          action,
+          status,
 
-    response.status(201).json({
-      interaction,
-    });
+          txHash:
+            txHash || undefined,
+
+          contractFunction:
+            contractFunction ||
+            undefined,
+
+          network:
+            network || undefined,
+
+          metadata:
+            asMetadata(
+              body.metadata
+            ),
+        });
+
+      response.status(201).json({
+        interaction,
+      });
+    }
+    catch (error) {
+      next(error);
+    }
   }
 );
 
 app.get(
   "/api/feedback",
-  (
+  async (
     request: Request,
-    response: Response
+    response: Response,
+    next: NextFunction
   ) => {
-    const feedback =
-      listFeedback(
-        parseLimit(
-          request.query.limit
-        )
-      );
+    try {
+      const feedback =
+        await listFeedback(
+          parseLimit(
+            request.query.limit
+          )
+        );
 
-    response.json({
-      count: feedback.length,
-      feedback,
-    });
+      response.json({
+        count: feedback.length,
+        feedback,
+      });
+    }
+    catch (error) {
+      next(error);
+    }
   }
 );
 
 app.post(
   "/api/feedback",
-  (
+  async (
     request: Request,
-    response: Response
+    response: Response,
+    next: NextFunction
   ) => {
     const body = request.body as
       Record<string, unknown>;
@@ -427,6 +486,11 @@ app.post(
     const comment =
       asNonEmptyString(
         body.comment
+      );
+
+    const improvementCategory =
+      asNonEmptyString(
+        body.improvementCategory
       );
 
     const rating =
@@ -446,29 +510,46 @@ app.post(
       return;
     }
 
-    const feedback =
-      createFeedback({
-        walletAddress:
-          walletAddress || undefined,
-        rating,
-        comment,
-      });
+    try {
+      const feedback =
+        await createFeedback({
+          walletAddress:
+            walletAddress ||
+            undefined,
 
-    response.status(201).json({
-      feedback,
-    });
+          rating,
+          comment,
+
+          improvementCategory:
+            improvementCategory ||
+            undefined,
+        });
+
+      response.status(201).json({
+        feedback,
+      });
+    }
+    catch (error) {
+      next(error);
+    }
   }
 );
 
 app.get(
   "/api/analytics",
-  (
+  async (
     _request: Request,
-    response: Response
+    response: Response,
+    next: NextFunction
   ) => {
-    response.json(
-      getAnalyticsSummary()
-    );
+    try {
+      response.json(
+        await getAnalyticsSummary()
+      );
+    }
+    catch (error) {
+      next(error);
+    }
   }
 );
 
@@ -515,15 +596,47 @@ app.use(
   }
 );
 
-if (
-  process.env.NODE_ENV !== "test"
-) {
+async function startServer():
+Promise<void> {
+  if (
+    process.env.NODE_ENV ===
+      "production" &&
+    !isDatabaseConfigured()
+  ) {
+    throw new Error(
+      "DATABASE_URL is required in production."
+    );
+  }
+
+  if (isDatabaseConfigured()) {
+    await initializeDatabase();
+
+    console.log(
+      "PostgreSQL schema initialized."
+    );
+  }
+
   app.listen(
     port,
     () => {
       console.log(
         `Stellar Chapter Pay server listening on port ${port}.`
       );
+    }
+  );
+}
+
+if (
+  process.env.NODE_ENV !== "test"
+) {
+  void startServer().catch(
+    (error: unknown) => {
+      console.error(
+        "Backend startup failed:",
+        error
+      );
+
+      process.exitCode = 1;
     }
   );
 }
