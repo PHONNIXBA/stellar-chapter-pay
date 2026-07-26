@@ -10,6 +10,7 @@ import {
   clearUsersForTests,
   getUserByWallet,
   listUsers,
+  markUserActivity,
   registerUser,
 } from "./userService";
 
@@ -185,6 +186,88 @@ describe(
         ).rejects.toThrow(
           "valid Stellar wallet"
         );
+      }
+    );
+  }
+);
+
+describe(
+  "user onboarding activity",
+  () => {
+    it(
+      "marks a registered user as wallet connected",
+      async () => {
+        await registerUser({
+          name: "Connected User",
+          email:
+            "connected@example.com",
+          walletAddress:
+            FIRST_WALLET,
+        });
+
+        const user =
+          await markUserActivity(
+            FIRST_WALLET,
+            "wallet_connected"
+          );
+
+        expect(
+          user?.onboardingStatus
+        ).toBe(
+          "wallet_connected"
+        );
+
+        expect(
+          user?.onboardingCompleted
+        ).toBe(false);
+
+        expect(
+          user?.lastActiveAt
+        ).not.toBeNull();
+      }
+    );
+
+    it(
+      "marks a successful product user as active",
+      async () => {
+        await registerUser({
+          name: "Active User",
+          email:
+            "active@example.com",
+          walletAddress:
+            FIRST_WALLET,
+        });
+
+        const user =
+          await markUserActivity(
+            FIRST_WALLET,
+            "active"
+          );
+
+        expect(
+          user?.onboardingStatus
+        ).toBe("active");
+
+        expect(
+          user?.onboardingCompleted
+        ).toBe(true);
+
+        expect(
+          user?.lastActiveAt
+        ).not.toBeNull();
+      }
+    );
+
+    it(
+      "returns null when activity belongs to an unregistered wallet",
+      async () => {
+        const user =
+          await markUserActivity(
+            FIRST_WALLET,
+            "active"
+          );
+
+        expect(user).toBeNull();
       }
     );
   }

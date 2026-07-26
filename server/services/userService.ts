@@ -184,6 +184,17 @@ export function isValidWalletAddress(
   );
 }
 
+export function isValidOnboardingStatus(
+  status: string
+): status is OnboardingStatus {
+  return [
+    "registered",
+    "wallet_connected",
+    "funded",
+    "active",
+  ].includes(status);
+}
+
 function validateUserInput(
   input: UserInput
 ): UserInput {
@@ -384,6 +395,115 @@ export async function getUserByWallet(
         LIMIT 1
       `,
       [normalizedWallet]
+    );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  return mapDatabaseUser(
+    result.rows[0]
+  );
+}
+
+export async function markUserActivity(
+  walletAddress: string,
+  onboardingStatus:
+    OnboardingStatus = "active"
+): Promise<UserRecord | null> {
+  const normalizedWallet =
+    normalizeWalletAddress(
+      walletAddress
+    );
+
+  if (
+    !isValidWalletAddress(
+      normalizedWallet
+    )
+  ) {
+    throw new Error(
+      "A valid Stellar wallet address is required."
+    );
+  }
+
+  if (
+    !isValidOnboardingStatus(
+      onboardingStatus
+    )
+  ) {
+    throw new Error(
+      "A valid onboarding status is required."
+    );
+  }
+
+  if (!isDatabaseConfigured()) {
+    const existingUser =
+      usersByWallet.get(
+        normalizedWallet
+      );
+
+    if (!existingUser) {
+      return null;
+    }
+
+    const now =
+      new Date().toISOString();
+
+    const updatedUser: UserRecord = {
+      ...existingUser,
+
+      onboardingStatus,
+
+      onboardingCompleted:
+        existingUser
+          .onboardingCompleted ||
+        onboardingStatus === "active",
+
+      lastActiveAt: now,
+      updatedAt: now,
+    };
+
+    usersByWallet.set(
+      normalizedWallet,
+      updatedUser
+    );
+
+    return cloneUser(
+      updatedUser
+    );
+  }
+
+  const result =
+    await queryDatabase<DatabaseUserRow>(
+      `
+        UPDATE users
+        SET
+          onboarding_status = $2,
+          onboarding_completed =
+            CASE
+              WHEN $2 = 'active'
+                THEN TRUE
+              ELSE onboarding_completed
+            END,
+          last_active_at = NOW(),
+          updated_at = NOW()
+        WHERE wallet_address = $1
+        RETURNING
+          id,
+          name,
+          email,
+          wallet_address,
+          onboarding_status,
+          onboarding_completed,
+          joined_at,
+          last_active_at,
+          created_at,
+          updated_at
+      `,
+      [
+        normalizedWallet,
+        onboardingStatus,
+      ]
     );
 
   if (result.rows.length === 0) {
