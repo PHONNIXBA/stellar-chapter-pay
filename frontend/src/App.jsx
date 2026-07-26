@@ -42,6 +42,10 @@ import {
 } from "./services/api";
 
 import {
+  recordRemoteInteraction,
+} from "./services/activitySync";
+
+import {
   CACHE_KEYS,
   canUnlockChapters,
   clearApplicationCache,
@@ -676,6 +680,19 @@ function App() {
           }
         );
 
+        void recordRemoteInteraction({
+          walletAddress:
+            nextWalletAddress,
+
+          action:
+            "wallet_connected",
+
+          status: "success",
+
+          network:
+            STELLAR_NETWORK.name,
+        });
+
         await refreshAccountData(
           nextWalletAddress,
           runtimeConfig
@@ -757,6 +774,8 @@ function App() {
         "Preparing demo Coin claim..."
       );
 
+      let submittedTransactionHash = "";
+
       try {
         await claimDemoCoins({
           server: rpcServer,
@@ -765,6 +784,9 @@ function App() {
           walletAddress,
           onSubmitted:
             (transactionHash) => {
+              submittedTransactionHash =
+                transactionHash;
+
               setTxHash(
                 transactionHash
               );
@@ -777,6 +799,24 @@ function App() {
               setTxStatus(
                 "Transaction submitted. Waiting for confirmation..."
               );
+
+              void recordRemoteInteraction({
+                walletAddress,
+
+                action:
+                  "demo_coins_claimed",
+
+                contractFunction:
+                  "faucet",
+
+                status: "pending",
+
+                txHash:
+                  transactionHash,
+
+                network:
+                  STELLAR_NETWORK.name,
+              });
             },
         });
 
@@ -788,6 +828,25 @@ function App() {
           "demo_coins_claimed",
           { walletAddress }
         );
+
+        void recordRemoteInteraction({
+          walletAddress,
+
+          action:
+            "demo_coins_claimed",
+
+          contractFunction:
+            "faucet",
+
+          status: "success",
+
+          txHash:
+            submittedTransactionHash ||
+            undefined,
+
+          network:
+            STELLAR_NETWORK.name,
+        });
 
         await refreshAccountData(
           walletAddress
@@ -811,6 +870,30 @@ function App() {
         setTxStatus(
           "Demo Coin claim failed."
         );
+
+        void recordRemoteInteraction({
+          walletAddress,
+
+          action:
+            "demo_coins_claimed",
+
+          contractFunction:
+            "faucet",
+
+          status: "failed",
+
+          txHash:
+            submittedTransactionHash ||
+            undefined,
+
+          network:
+            STELLAR_NETWORK.name,
+
+          metadata: {
+            errorType:
+              classifiedError.type,
+          },
+        });
       } finally {
         setIsClaiming(false);
       }
@@ -845,6 +928,8 @@ function App() {
         "Preparing chapter purchase..."
       );
 
+      let submittedTransactionHash = "";
+
       try {
         await unlockChapters({
           server: rpcServer,
@@ -855,6 +940,9 @@ function App() {
             quantityNumber,
           onSubmitted:
             (transactionHash) => {
+              submittedTransactionHash =
+                transactionHash;
+
               setTxHash(
                 transactionHash
               );
@@ -867,6 +955,31 @@ function App() {
               setTxStatus(
                 "Transaction submitted. Waiting for confirmation..."
               );
+
+              void recordRemoteInteraction({
+                walletAddress,
+
+                action:
+                  "chapters_unlocked",
+
+                contractFunction:
+                  "unlock_with_payment",
+
+                status: "pending",
+
+                txHash:
+                  transactionHash,
+
+                network:
+                  STELLAR_NETWORK.name,
+
+                metadata: {
+                  quantity:
+                    quantityNumber,
+
+                  totalPrice,
+                },
+              });
             },
         });
 
@@ -883,6 +996,32 @@ function App() {
             totalPrice,
           }
         );
+
+        void recordRemoteInteraction({
+          walletAddress,
+
+          action:
+            "chapters_unlocked",
+
+          contractFunction:
+            "unlock_with_payment",
+
+          status: "success",
+
+          txHash:
+            submittedTransactionHash ||
+            undefined,
+
+          network:
+            STELLAR_NETWORK.name,
+
+          metadata: {
+            quantity:
+              quantityNumber,
+
+            totalPrice,
+          },
+        });
 
         await refreshAccountData(
           walletAddress
@@ -906,6 +1045,35 @@ function App() {
         setTxStatus(
           "Chapter purchase failed."
         );
+
+        void recordRemoteInteraction({
+          walletAddress,
+
+          action:
+            "chapters_unlocked",
+
+          contractFunction:
+            "unlock_with_payment",
+
+          status: "failed",
+
+          txHash:
+            submittedTransactionHash ||
+            undefined,
+
+          network:
+            STELLAR_NETWORK.name,
+
+          metadata: {
+            quantity:
+              quantityNumber,
+
+            totalPrice,
+
+            errorType:
+              classifiedError.type,
+          },
+        });
       } finally {
         setIsUnlocking(false);
       }
@@ -1115,6 +1283,24 @@ function App() {
                       user.walletAddress,
                   }
                 );
+
+                void recordRemoteInteraction({
+                  walletAddress:
+                    user.walletAddress,
+
+                  action:
+                    "wallet_connected",
+
+                  status: "success",
+
+                  network:
+                    STELLAR_NETWORK.name,
+
+                  metadata: {
+                    source:
+                      "profile_registration",
+                  },
+                });
               }}
             />
           )}
