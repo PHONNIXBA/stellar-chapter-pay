@@ -68,18 +68,56 @@ function isTestnetNetwork(
     return true;
   }
 
+  const normalizedNetwork =
+    network.toUpperCase();
+
   return (
-    network.toUpperCase() ===
+    normalizedNetwork ===
       STELLAR_NETWORK.name ||
-    network
-      .toUpperCase()
-      .includes("TESTNET")
+    normalizedNetwork.includes(
+      "TESTNET"
+    )
   );
+}
+
+function readSelectedWalletModule() {
+  const selectedModuleMember =
+    StellarWalletsKit.selectedModule;
+
+  if (
+    typeof selectedModuleMember ===
+    "function"
+  ) {
+    try {
+      return (
+        selectedModuleMember.call(
+          StellarWalletsKit
+        ) || null
+      );
+    } catch (error) {
+      console.warn(
+        "The Wallets Kit selected module could not be read:",
+        error
+      );
+
+      return null;
+    }
+  }
+
+  if (
+    selectedModuleMember &&
+    typeof selectedModuleMember ===
+      "object"
+  ) {
+    return selectedModuleMember;
+  }
+
+  return null;
 }
 
 function getSelectedWalletDetails() {
   const selectedModule =
-    StellarWalletsKit.selectedModule();
+    readSelectedWalletModule();
 
   return {
     walletId:
@@ -126,9 +164,14 @@ export async function connectWallet() {
     networkDetails &&
     !isTestnetNetwork(networkDetails)
   ) {
-    await StellarWalletsKit
-      .disconnect()
-      .catch(() => {});
+    try {
+      await StellarWalletsKit.disconnect();
+    } catch (error) {
+      console.warn(
+        "Wallet cleanup after a network mismatch failed:",
+        error
+      );
+    }
 
     throw new Error(
       "The selected wallet is not connected to Stellar Testnet."
