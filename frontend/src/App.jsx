@@ -5,12 +5,6 @@ import {
   useState,
 } from "react";
 
-import {
-  getAddress,
-  getNetwork,
-  isConnected,
-  setAllowed,
-} from "@stellar/freighter-api";
 
 import "./App.css";
 
@@ -33,6 +27,11 @@ import {
   readUnlockedCount,
   unlockChapters,
 } from "./services/contract";
+
+import {
+  connectWallet,
+  disconnectWallet,
+} from "./services/wallet";
 
 import {
   readLocalAnalyticsEvents,
@@ -98,7 +97,7 @@ function classifyTransactionError(error) {
     return {
       type: "Transaction Rejected",
       message:
-        "The transaction was cancelled in Freighter.",
+        "The transaction was cancelled in the selected wallet.",
     };
   }
 
@@ -171,6 +170,11 @@ function App() {
       ""
     )
   );
+
+  const [
+    walletName,
+    setWalletName,
+  ] = useState("");
 
   const [
     walletStatus,
@@ -254,6 +258,11 @@ function App() {
   const [
     isConnecting,
     setIsConnecting,
+  ] = useState(false);
+
+  const [
+    isDisconnecting,
+    setIsDisconnecting,
   ] = useState(false);
 
   const [
@@ -462,7 +471,7 @@ function App() {
         if (!activeAddress) {
           showError(
             "Wallet Not Connected",
-            "Connect Freighter before refreshing account data."
+            "Connect a Stellar wallet before refreshing account data."
           );
 
           return;
@@ -575,63 +584,18 @@ function App() {
 
       try {
         setWalletStatus(
-          "Checking Freighter..."
+          "Opening the Stellar wallet selector..."
         );
 
-        const connectionResult =
-          await isConnected();
-
-        if (
-          !connectionResult.isConnected
-        ) {
-          setWalletStatus(
-            "Freighter was not detected."
-          );
-
-          showError(
-            "Wallet Not Found",
-            "Install or enable the Freighter browser extension."
-          );
-
-          return;
-        }
-
-        const networkResult =
-          await getNetwork();
-
-        if (
-          networkResult.error ||
-          networkResult.network !==
-            STELLAR_NETWORK.name
-        ) {
-          setWalletStatus(
-            "Freighter is on the wrong network."
-          );
-
-          showError(
-            "Wrong Network",
-            "Switch Freighter to TESTNET and try again."
-          );
-
-          return;
-        }
-
-        await setAllowed();
-
-        const addressResult =
-          await getAddress();
-
-        if (
-          addressResult.error ||
-          !addressResult.address
-        ) {
-          throw new Error(
-            "Freighter did not return a wallet address."
-          );
-        }
+        const wallet =
+          await connectWallet();
 
         const nextWalletAddress =
-          addressResult.address;
+          wallet.address;
+
+        const nextWalletName =
+          wallet.walletName ||
+          "Stellar wallet";
 
         let runtimeConfig = {
           chapterContractId,
@@ -659,10 +623,14 @@ function App() {
           nextWalletAddress
         );
 
+        setWalletName(
+          nextWalletName
+        );
+
         setIsWalletConnected(true);
 
         setWalletStatus(
-          "Wallet connected on Stellar Testnet."
+          `${nextWalletName} connected on Stellar Testnet.`
         );
 
         saveCache(
@@ -679,6 +647,12 @@ function App() {
           {
             walletAddress:
               nextWalletAddress,
+
+            walletId:
+              wallet.walletId,
+
+            walletName:
+              nextWalletName,
           }
         );
 
@@ -693,6 +667,14 @@ function App() {
 
           network:
             STELLAR_NETWORK.name,
+
+          metadata: {
+            walletId:
+              wallet.walletId,
+
+            walletName:
+              nextWalletName,
+          },
         });
 
         await refreshAccountData(
@@ -705,47 +687,93 @@ function App() {
           error
         );
 
+        const connectionMessage =
+          error instanceof Error
+            ? error.message
+            : "The selected wallet could not be connected.";
+
+        const normalizedMessage =
+          connectionMessage.toLowerCase();
+
         setWalletStatus(
           "Wallet connection failed."
         );
 
-        showError(
-          "Connection Failed",
-          "Freighter could not be connected."
-        );
+        if (
+          normalizedMessage.includes(
+            "testnet"
+          )
+        ) {
+          showError(
+            "Wrong Network",
+            connectionMessage
+          );
+        } else if (
+          normalizedMessage.includes(
+            "cancel"
+          ) ||
+          normalizedMessage.includes(
+            "reject"
+          )
+        ) {
+          showError(
+            "Connection Cancelled",
+            "Wallet selection or connection was cancelled."
+          );
+        } else {
+          showError(
+            "Connection Failed",
+            connectionMessage
+          );
+        }
       } finally {
         setIsConnecting(false);
       }
     };
 
   const handleDisconnectWallet =
-    () => {
-      clearApplicationCache();
+    async () => {
+      setIsDisconnecting(true);
 
-      setWalletAddress("");
-      setWalletStatus(
-        "Wallet disconnected."
-      );
+      try {
+        await disconnectWallet();
+      } catch (error) {
+        console.warn(
+          "Wallet provider disconnect warning:",
+          error
+        );
+      } finally {
+        clearApplicationCache();
 
-      setIsWalletConnected(false);
-      setOnboardingUser(null);
-      setIsLoadingOnboardingUser(false);
-      setUnlockedCount("0");
-      setPricePerChapter("...");
-      setTokenBalance("0");
-      setQuantity("1");
-      setTxHash("");
-      setTxStatus(
-        "No transaction yet."
-      );
+        setWalletAddress("");
+        setWalletName("");
 
-      clearError();
+        setWalletStatus(
+          "Wallet disconnected."
+        );
 
-      recordActivity(
-        "wallet_disconnected"
-      );
+        setIsWalletConnected(false);
+        setOnboardingUser(null);
+        setIsLoadingOnboardingUser(false);
+        setUnlockedCount("0");
+        setPricePerChapter("...");
+        setTokenBalance("0");
+        setQuantity("1");
+        setTxHash("");
+
+        setTxStatus(
+          "No transaction yet."
+        );
+
+        clearError();
+
+        recordActivity(
+          "wallet_disconnected"
+        );
+
+        setIsDisconnecting(false);
+      }
     };
-
   const handleClaimCoins =
     async () => {
       if (
@@ -754,7 +782,7 @@ function App() {
       ) {
         showError(
           "Wallet Not Connected",
-          "Connect Freighter before claiming demo Coins."
+          "Connect a Stellar wallet before claiming demo Coins."
         );
 
         return;
@@ -1135,8 +1163,13 @@ function App() {
                 onClick={
                   handleDisconnectWallet
                 }
+                disabled={
+                  isDisconnecting
+                }
               >
-                Disconnect
+                {isDisconnecting
+                  ? "Disconnecting..."
+                  : "Disconnect"}
               </button>
             ) : (
               <button
@@ -1145,11 +1178,14 @@ function App() {
                 onClick={
                   handleConnectWallet
                 }
-                disabled={isConnecting}
+                disabled={
+                  isConnecting ||
+                  isDisconnecting
+                }
               >
                 {isConnecting
                   ? "Connecting..."
-                  : "Connect Freighter"}
+                  : "Connect Wallet"}
               </button>
             )}
           </div>
@@ -1243,7 +1279,7 @@ function App() {
                 setConfigError("");
               }}
             >
-              ×
+              Ã—
             </button>
           </section>
         )}
@@ -1438,7 +1474,7 @@ function App() {
                 </div>
 
                 <p className="price-formula">
-                  {quantityNumber} ×{" "}
+                  {quantityNumber} Ã—{" "}
                   {normalizedPrice}
                 </p>
               </div>
@@ -1477,7 +1513,7 @@ function App() {
 
               {!canPurchase && (
                 <p className="form-hint">
-                  Connect Freighter and make
+                  Connect a Stellar wallet and make
                   sure the wallet has enough
                   Chapter Coin.
                 </p>
@@ -1566,7 +1602,8 @@ function App() {
                 </p>
 
                 <h2>
-                  Freighter wallet
+                  {walletName ||
+                    "Stellar wallet"}
                 </h2>
               </div>
 
@@ -1584,6 +1621,15 @@ function App() {
             </div>
 
             <div className="detail-list">
+              <div className="detail-row">
+                <span>Wallet</span>
+
+                <strong>
+                  {walletName ||
+                    "Not selected"}
+                </strong>
+              </div>
+
               <div className="detail-row">
                 <span>Status</span>
 
@@ -1833,7 +1879,7 @@ function App() {
 
         <footer className="app-footer">
           <p>
-            Stellar Chapter Pay · Soroban
+            Stellar Chapter Pay Â· Soroban
             Testnet MVP
           </p>
 
