@@ -1,210 +1,546 @@
-# Stellar Chapter Pay Architecture
+# Architecture
 
 ## Overview
 
-Stellar Chapter Pay is a Soroban-based application that allows users to claim Chapter Coin and spend those tokens to unlock multiple digital chapters in one transaction.
+Stellar Chapter Pay is a full-stack Stellar Testnet application for purchasing access to multiple digital chapters with Chapter Coin.
 
-The project uses a production-oriented structure with separate smart contract, frontend, backend, documentation, deployment, and verification layers.
+The Level 5 architecture combines:
 
-## Repository Structure
+- Two Soroban smart contracts.
+- A React and Vite frontend.
+- Freighter wallet integration.
+- A TypeScript and Express backend.
+- PostgreSQL persistence.
+- User onboarding linked to Stellar wallets.
+- Wallet and transaction activity tracking.
+- Product feedback collection.
+- Live product evidence statistics.
+- Protected administrative endpoints.
+- Excel-compatible CSV export.
+- Automated local and GitHub Actions verification.
 
-    stellar-chapter-pay
-    |-- contracts
-    |   `-- chapter-unlock
-    |       |-- contracts
-    |       |   |-- chapter-payment
-    |       |   `-- chapter-token
-    |       |-- Cargo.toml
-    |       `-- Cargo.lock
-    |-- frontend
-    |   |-- public
-    |   |-- src
-    |   |   |-- services
-    |   |   |-- utils
-    |   |   |-- App.jsx
-    |   |   |-- App.css
-    |   |   |-- contractConfig.js
-    |   |   `-- main.jsx
-    |   |-- package.json
-    |   `-- vite.config.js
-    |-- server
-    |   |-- services
-    |   |-- index.ts
-    |   |-- index.test.ts
-    |   |-- package.json
-    |   `-- tsconfig.json
-    |-- scripts
-    |-- docs
-    |-- .github
-    |-- vercel.json
-    |-- railway.toml
-    |-- Procfile
-    `-- README.md
+## High-Level Architecture
 
-## Smart Contract Layer
+    User
+      |
+      v
+    Browser
+      |
+      +---------------------------+
+      |                           |
+      v                           v
+    Freighter Wallet       React + Vite Frontend
+      |                           |
+      |                           +----------------------+
+      |                           |                      |
+      v                           v                      v
+    Stellar Testnet RPC     Express API          Local analytics cache
+      |                           |
+      v                           v
+    Chapter Payment         PostgreSQL
+      |                     /     |      \
+      v                    Users  Activity Feedback
+    Chapter Token
 
-### Chapter Token
+## Deployment Topology
 
-The Chapter Token contract manages the Chapter Coin utility token.
+Production deployment is separated into four components:
+
+1. Chapter Token contract on Stellar Testnet.
+2. Chapter Payment contract on Stellar Testnet.
+3. Express backend and PostgreSQL database on Railway.
+4. React frontend on Vercel.
+
+The frontend communicates with:
+
+- Freighter for wallet authorization and transaction signing.
+- Stellar RPC for contract reads and transaction submission.
+- The backend API for onboarding, activity tracking, feedback, statistics, and exports.
+
+## Soroban Contracts
+
+The contract workspace is located at:
+
+    contracts/chapter-unlock
+
+It contains:
+
+    contracts/chapter-unlock/contracts/chapter-token
+    contracts/chapter-unlock/contracts/chapter-payment
+
+### Chapter Token Contract
 
 Responsibilities:
 
-- Initialize token metadata and administrator.
-- Provide a one-time demo token faucet.
-- Mint tokens through administrator authorization.
-- Transfer tokens between addresses.
-- Track balances and total supply.
-- Track whether a wallet has claimed demo tokens.
+- Initialize token metadata.
+- Store the administrator address.
+- Mint Chapter Coin.
+- Read token balances.
+- Transfer tokens.
+- Provide a one-time Testnet faucet.
+- Track total token supply.
 - Publish typed Soroban events.
-- Return token statistics.
 
-### Chapter Payment
+The faucet protects against repeated claims by the same wallet.
 
-The Chapter Payment contract manages chapter purchases.
+### Chapter Payment Contract
 
 Responsibilities:
 
-- Store the Chapter Token contract address.
-- Store the price per chapter.
+- Initialize payment configuration.
+- Store the Chapter Token contract ID.
+- Store the chapter price.
 - Process multi-chapter purchases.
-- Call the Chapter Token contract through inter-contract communication.
-- Transfer Chapter Coin from the user to the payment contract.
+- Call the Chapter Token contract.
+- Transfer Chapter Coin from buyer to administrator.
 - Store payment records.
-- Track chapters unlocked by each user.
-- Track total payments, revenue, and unlocked chapters.
-- Support administrator price updates.
-- Support pause and resume controls.
+- Track unlocked chapter counts.
+- Track aggregate payment statistics.
+- Update chapter pricing.
+- Pause and resume payments.
 - Publish typed Soroban events.
 
-## Contract Data Flow
+### Inter-Contract Payment Flow
 
-1. A user connects Freighter on Stellar Testnet.
-2. The frontend loads the Chapter Token and Chapter Payment contract addresses.
-3. The frontend reads the user's Chapter Coin balance.
-4. The user selects a chapter quantity.
-5. The frontend calculates the estimated total payment.
-6. The user signs an unlock transaction with Freighter.
-7. The Chapter Payment contract calls the Chapter Token contract.
-8. Chapter Coin is transferred from the user to the payment contract.
-9. A payment record is stored in persistent storage.
-10. The unlocked chapter count and aggregate statistics are updated.
-11. The frontend waits for Stellar RPC confirmation.
-12. The dashboard refreshes the latest wallet and contract state.
+    User selects quantity
+            |
+            v
+    Frontend calculates estimated total
+            |
+            v
+    User signs unlock_with_payment
+            |
+            v
+    Chapter Payment contract
+            |
+            v
+    Chapter Token transfer
+            |
+            v
+    Payment record and access count updated
 
-## Frontend Layer
+## Testnet Contract IDs
 
-The frontend is built with React and Vite.
+Chapter Payment:
 
-Main responsibilities:
+    CD4Q4QQRSLMXOZCUE72OAXLKA5XBGAEO4G4O37BF4QIMOY7GQUHTAE2O
+
+Chapter Token:
+
+    CD4IL6YDYQRRLH5RKJCQ2D4XGQWJSLSOKBTGL6UE6VLBBL4I4EWEXTNR
+
+Runtime frontend configuration:
+
+    frontend/public/contracts.json
+
+## Frontend Architecture
+
+The frontend is located at:
+
+    frontend
+
+Primary responsibilities:
 
 - Connect and disconnect Freighter.
-- Validate that Freighter is using Stellar Testnet.
-- Load contract configuration.
-- Read token balances and chapter access data.
-- Submit signed Soroban transactions.
-- Display pending, success, and failure states.
-- Display transaction hashes and explorer links.
-- Cache selected wallet and transaction information.
-- Track local product analytics.
-- Provide a responsive dashboard for desktop and mobile.
-
-### Frontend Service Layer
-
-The frontend separates business logic into services:
-
-- services/contract.js handles Stellar RPC and Soroban transactions.
-- services/api.js communicates with the backend API.
-- services/analytics.js records local product events.
-- contractConfig.js manages network and contract configuration.
-- utils/cache.js manages browser cache and purchase validation.
-
-This keeps App.jsx focused on state management and user interface behavior.
-
-## Backend Layer
-
-The backend is built with Express and TypeScript.
-
-Main responsibilities:
-
-- Expose service health information.
-- Return Stellar runtime configuration.
-- Document contract function coverage.
-- Record wallet interactions.
+- Validate the Stellar network.
+- Load deployed contract configuration.
+- Read contract state.
+- Submit signed Testnet transactions.
+- Display transaction status and hash.
+- Register wallet-linked user profiles.
+- Send activity records to the backend.
 - Collect product feedback.
-- Return analytics summaries.
-- Return product readiness information.
+- Display Level 5 statistics.
 
-### Backend Endpoints
+### Main Application
 
-- GET /health
-- GET /api/config
-- GET /api/functions
-- GET /api/interactions
-- POST /api/interactions
-- GET /api/feedback
-- POST /api/feedback
-- GET /api/analytics
-- GET /api/product-readiness
+Primary entry:
 
-## Storage Model
+    frontend/src/App.jsx
 
-### On-chain Storage
-
-The Soroban contracts use instance and persistent storage for:
+The application coordinates:
 
 - Contract configuration.
-- Token balances.
-- Token supply.
-- Faucet claims.
-- Payment records.
-- User chapter counts.
-- Aggregate payment statistics.
+- Wallet session state.
+- Chapter Coin balance.
+- Chapter access count.
+- Chapter pricing.
+- Claim transactions.
+- Chapter purchase transactions.
+- Local activity display.
+- Remote activity persistence.
+- Onboarding state.
+- Feedback state.
+- Level 5 evidence dashboard.
 
-### Browser Storage
+### Frontend Components
 
-The frontend uses localStorage for:
+Onboarding:
 
-- Last connected wallet address.
-- Last transaction hash.
-- Cached Chapter Coin balance.
-- Cached chapter count.
-- Local analytics events.
+    frontend/src/components/OnboardingForm.jsx
 
-### Backend Storage
+Feedback:
 
-The current backend uses bounded in-memory collections for product validation records.
+    frontend/src/components/FeedbackForm.jsx
 
-This is suitable for the current testnet MVP. A future production version can replace this layer with a persistent database without changing the API contract.
+Live statistics:
+
+    frontend/src/components/Level5Dashboard.jsx
+    frontend/src/components/Level5Stats.jsx
+
+### Frontend Services
+
+Backend API client:
+
+    frontend/src/services/api.js
+
+Remote interaction synchronization:
+
+    frontend/src/services/activitySync.js
+
+Statistics API client:
+
+    frontend/src/services/statisticsApi.js
+
+Soroban integration:
+
+    frontend/src/services/contract.js
+
+Local product analytics:
+
+    frontend/src/services/analytics.js
+
+### Transaction State
+
+The frontend represents transaction activity with:
+
+- Preparing.
+- Pending.
+- Successful.
+- Failed.
+- Confirmation timeout.
+
+When a transaction is submitted, the frontend stores and displays its transaction hash.
+
+Backend activity logging is non-blocking. A backend analytics failure does not cancel or invalidate the Stellar transaction.
+
+## Backend Architecture
+
+The backend is located at:
+
+    server
+
+Primary entry:
+
+    server/index.ts
+
+The backend uses:
+
+- Express.
+- TypeScript.
+- PostgreSQL.
+- Parameterized SQL queries.
+- Environment-based configuration.
+- Request validation.
+- API key middleware.
+- Automated tests.
+
+### Public Endpoints
+
+    GET  /health
+    GET  /api/config
+    GET  /api/functions
+    GET  /api/users/:walletAddress
+    POST /api/users
+    POST /api/interactions
+    POST /api/feedback
+    GET  /api/analytics
+    GET  /api/statistics/level-5
+    GET  /api/product-readiness
+
+### Private Endpoints
+
+These endpoints require:
+
+    x-admin-api-key
+
+Protected routes:
+
+    GET /api/users
+    GET /api/interactions
+    GET /api/feedback
+
+### Export Endpoint
+
+The Level 5 CSV export requires:
+
+    x-export-api-key
+
+Endpoint:
+
+    GET /api/exports/level-5.csv
+
+Admin and export keys are separate secrets.
+
+## Backend Services
+
+Database configuration and schema:
+
+    server/services/databaseService.ts
+
+User registration and wallet mapping:
+
+    server/services/userService.ts
+
+Interactions, feedback, and analytics:
+
+    server/services/dataService.ts
+
+Level 5 aggregate statistics:
+
+    server/services/statisticsService.ts
+
+Private endpoint authorization:
+
+    server/services/adminAuth.ts
+
+Excel-compatible CSV export:
+
+    server/services/exportService.ts
+
+Contract and runtime information:
+
+    server/services/contractService.ts
+
+## PostgreSQL Data Model
+
+### Users Table
+
+The users table stores:
+
+- ID.
+- Name.
+- Email.
+- Wallet address.
+- Onboarding status.
+- Onboarding completion.
+- Join timestamp.
+- Last active timestamp.
+- Created timestamp.
+- Updated timestamp.
+
+The wallet address is unique.
+
+Supported onboarding states:
+
+    registered
+    wallet_connected
+    funded
+    active
+
+### Interactions Table
+
+The interactions table stores:
+
+- ID.
+- Optional linked user ID.
+- Wallet address.
+- Action.
+- Contract function.
+- Status.
+- Transaction hash.
+- Stellar network.
+- JSON metadata.
+- Creation timestamp.
+
+Supported statuses:
+
+    pending
+    success
+    failed
+
+### Feedback Table
+
+The feedback table stores:
+
+- ID.
+- Optional linked user ID.
+- Wallet address.
+- Rating from 1 to 5.
+- Written comment.
+- Improvement category.
+- Creation timestamp.
+
+## Activity and User-State Flow
+
+    User registers profile
+            |
+            v
+    Status: registered
+            |
+            v
+    User connects wallet
+            |
+            v
+    Status: wallet_connected
+            |
+            v
+    User submits Testnet transaction
+            |
+            v
+    Interaction: pending
+            |
+            +------------------+
+            |                  |
+            v                  v
+         success             failed
+            |
+            v
+    Transaction hash stored
+            |
+            v
+    User status: active
+
+A user is counted as an active wallet only when the backend records a successful interaction with a transaction hash.
+
+## Level 5 Statistics
+
+The statistics service combines:
+
+- User count.
+- Verified active wallet count.
+- Interaction count.
+- Successful transaction count.
+- Feedback count.
+- Average rating.
+- Update timestamp.
+
+Endpoint:
+
+    GET /api/statistics/level-5
+
+The public endpoint returns aggregate values only. It does not expose names, emails, full interaction records, or feedback comments.
 
 ## Security Boundaries
 
-- Freighter handles wallet authorization and transaction signing.
-- Administrator-only contract functions require administrator authorization.
-- Contract input values are validated before state changes.
-- Arithmetic operations use checked calculations.
-- Contract events use typed event structures.
-- The backend validates interaction and feedback payloads.
-- Backend request bodies are size-limited.
-- Generated files and environment files are excluded from version control.
+### Wallet Security
 
-## Deployment Architecture
+- Freighter controls wallet authorization.
+- Secret keys are never stored by the application.
+- Users sign Stellar transactions through Freighter.
+- The frontend verifies the selected Stellar network.
 
-The intended deployment model is:
+### Contract Security
 
-- Soroban contracts deployed to Stellar Testnet.
-- React frontend deployed through Vercel.
-- Express backend deployed through Railway.
-- Runtime contract addresses supplied through configuration files or environment variables.
-- GitHub Actions validates contracts, frontend, backend, and deployment configuration before merge.
+- Administrative contract functions require administrator authorization.
+- Arithmetic uses checked operations.
+- Faucet claims are limited per wallet.
+- Payment actions can be paused.
+- Contract configuration is stored on-chain.
 
-## Future Architecture
+### API Security
 
-Future versions may add:
+- Private list routes require `ADMIN_API_KEY`.
+- CSV export requires `EXPORT_API_KEY`.
+- API keys use constant-time comparison.
+- Request JSON size is limited.
+- SQL queries use parameters.
+- Production requires PostgreSQL.
+- Production requires the admin API key.
 
-- Persistent backend database storage.
-- Mainnet deployment.
-- Expanded content ownership records.
-- Creator payment distribution.
-- Stablecoin or tokenized asset payments.
-- Additional wallet integrations.
-- Monitoring and external analytics providers.
+### Data Security
+
+Public Git history must not contain:
+
+- Database connection strings.
+- API keys.
+- Wallet secret keys.
+- Local environment files.
+- Exported user records.
+- Private user emails.
+- Deployment access tokens.
+
+## Failure Handling
+
+### Wallet Failures
+
+The frontend displays dedicated messages for:
+
+- Missing Freighter.
+- Wrong Stellar network.
+- User rejection.
+- Insufficient Chapter Coin.
+- Previously claimed faucet.
+- Transaction timeout.
+- Contract configuration failure.
+
+### Backend Failures
+
+A backend request failure:
+
+- Does not cancel a submitted Stellar transaction.
+- Is logged in the browser console.
+- Can be retried.
+- Is surfaced in onboarding, feedback, or statistics UI.
+
+### Database Failures
+
+Production startup fails when `DATABASE_URL` is absent.
+
+Database connection failures are visible through:
+
+    GET /health
+
+Local development can use memory storage when `DATABASE_URL` is not configured.
+
+Memory mode is only for development and testing.
+
+## Verification Architecture
+
+Local verifier:
+
+    scripts/verify-level5.ps1
+
+GitHub Actions workflow:
+
+    .github/workflows/level-5.yml
+
+The verification pipeline checks:
+
+- Repository structure.
+- Required Level 5 integrations.
+- Contract formatting.
+- Contract WASM compatibility.
+- Contract tests.
+- Contract release builds.
+- Backend type-checking.
+- Backend tests.
+- Backend production build.
+- Backend security audit.
+- Frontend lint.
+- Frontend tests.
+- Frontend production build.
+- Frontend security audit.
+- Commit count.
+- Environment file protection.
+- Git formatting.
+
+## Current Validation Boundary
+
+The technical architecture supports Level 5 user validation.
+
+The repository does not claim that the real-user validation phase has been completed.
+
+Still required separately:
+
+- At least 50 genuine users.
+- Distinct Testnet wallets.
+- Genuine Testnet transaction hashes.
+- Google Form evidence.
+- Excel or Google Sheet evidence.
+- Feedback-driven product improvements.
+- Pitch deck.
+- Walkthrough video.
+- Final analytics screenshots.
+
+Local smoke-test data must not be counted as real-user evidence.

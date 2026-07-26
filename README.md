@@ -1,37 +1,51 @@
 # Stellar Chapter Pay
 
-Stellar Chapter Pay is a Soroban-based application for purchasing access to multiple digital chapters with Chapter Coin.
+Stellar Chapter Pay is a Stellar Testnet application for purchasing access to multiple digital chapters with Chapter Coin.
 
-The application combines two Stellar smart contracts, a responsive React dashboard, an Express backend, product analytics, automated tests, CI/CD, and deployment configuration.
+The project combines two Soroban smart contracts, Freighter wallet integration, a responsive React frontend, a TypeScript backend, PostgreSQL persistence, user onboarding, transaction tracking, product feedback, live usage statistics, protected data export, automated tests, CI/CD, and deployment configuration.
 
 ## Problem
 
-Digital content platforms often depend on centralized payment and access systems.
+Digital content platforms commonly depend on centralized payment and access databases.
 
 This creates several limitations:
 
-- Payment records are controlled by one platform.
 - Users cannot independently verify purchases.
+- Payment records are controlled by one platform.
 - Access history may be difficult to audit.
-- Small content purchases can be inefficient.
-- Developers must trust private platform databases.
+- Small content purchases may require multiple separate payments.
+- Product operators may lack transparent usage evidence.
 
 Stellar Chapter Pay demonstrates a transparent alternative where chapter payments and access records are processed through Soroban contracts on Stellar.
 
 ## Why Stellar
 
-Stellar is suitable for this project because it provides:
+Stellar provides:
 
 - Fast transaction settlement.
 - Low transaction costs.
 - Freighter wallet integration.
 - Soroban smart contracts.
-- Typed contract events.
 - Persistent on-chain storage.
+- Typed contract events.
 - Inter-contract communication.
-- Public and verifiable transaction history.
+- Public transaction verification.
 
-The current version is configured for Stellar Testnet.
+The current deployment uses Stellar Testnet.
+
+## Core Product Flow
+
+1. Open the frontend.
+2. Connect Freighter.
+3. Confirm Freighter is using Stellar Testnet.
+4. Register a profile linked to the wallet.
+5. Claim demo Chapter Coin.
+6. Select the number of chapters.
+7. Sign one Soroban payment transaction.
+8. Wait for transaction confirmation.
+9. View the transaction hash and explorer link.
+10. Submit a product rating and feedback.
+11. View aggregated usage statistics.
 
 ## Main Features
 
@@ -39,679 +53,412 @@ The current version is configured for Stellar Testnet.
 
 Users can:
 
-- Connect a Freighter wallet.
-- Claim a one-time demo Chapter Coin allocation.
-- Check their Chapter Coin balance.
-- Transfer Chapter Coin through contract interactions.
+- Claim a one-time Testnet token allocation.
+- Read their Chapter Coin balance.
+- Use Chapter Coin to purchase chapter access.
 
 Administrators can:
 
 - Initialize token metadata.
 - Mint Chapter Coin.
-- Read token supply statistics.
+- Read total supply statistics.
 
 ### Chapter Payments
 
 Users can:
 
-- Select the number of chapters to unlock.
+- Select a chapter quantity.
 - See the estimated total payment.
-- Purchase multiple chapters in one transaction.
-- View transaction status.
+- Unlock multiple chapters in one transaction.
+- Read their unlocked chapter count.
+- View pending, successful, failed, and timeout states.
 - Copy the transaction hash.
 - Open the transaction in Stellar Explorer.
-- Read their total unlocked chapter count.
 
 Administrators can:
 
 - Configure the token contract.
-- Set the price per chapter.
-- Update the price.
+- Set or update the chapter price.
 - Pause or resume chapter payments.
+- Read aggregate payment statistics.
 
-### Product Validation
+### User Onboarding
 
-The project includes:
+The application can:
 
-- Local product analytics.
-- Wallet interaction tracking.
-- Product feedback collection.
-- Backend analytics summaries.
-- Product readiness reporting.
-- Loading, success, and failure states.
-- Responsive desktop and mobile layouts.
+- Register a name and email.
+- Link the profile to a Stellar wallet.
+- Track onboarding progress.
+- Mark wallets active after successful Testnet activity.
+- Load an existing profile after wallet connection.
+
+### Activity Tracking
+
+The backend records:
+
+- Wallet connections.
+- Profile registrations.
+- Pending transactions.
+- Successful transactions.
+- Failed transactions.
+- Contract functions.
+- Transaction hashes.
+- Network information.
+- Product metadata.
+
+Tracking failures do not interrupt Stellar transactions.
+
+### Product Feedback
+
+Registered users can submit:
+
+- Rating from 1 to 5.
+- Written feedback.
+- Improvement category.
+- Wallet-linked product validation information.
+
+### Level 5 Statistics
+
+The frontend displays live backend statistics:
+
+- Registered users.
+- Active wallets.
+- Recorded interactions.
+- Successful Testnet transactions.
+- Feedback responses.
+- Average rating.
+
+Public endpoint:
+
+    GET /api/statistics/level-5
+
+### Data Export
+
+The backend provides an Excel-compatible CSV export containing users, wallet activity, transaction hashes, and feedback.
+
+Protected endpoint:
+
+    GET /api/exports/level-5.csv
+
+Required header:
+
+    x-export-api-key
+
+Exported personal data must not be committed to the public repository.
 
 ## Architecture
-
-The application contains four main layers:
 
     Freighter Wallet
            |
            v
-    React Frontend
+    React + Vite Frontend
            |
-           +----------------------+
-           |                      |
-           v                      v
-    Stellar RPC             Express Backend
-           |                      |
-           v                      v
-    Chapter Payment        Interactions
-           |               Feedback
-           v               Analytics
-    Chapter Token          Product readiness
+           +------------------------+
+           |                        |
+           v                        v
+    Stellar RPC              Express API
+           |                        |
+           v                        v
+    Chapter Payment            PostgreSQL
+           |                  /     |      \
+           v                 Users Activity Feedback
+    Chapter Token
+           |
+           v
+    Stellar Testnet
+
+## Smart Contracts
+
+### Chapter Token
+
+The Chapter Token contract supports:
+
+- Initialization.
+- Administrator authorization.
+- Token metadata.
+- Administrator minting.
+- Account balances.
+- Token transfers.
+- One-time faucet claims.
+- Total supply statistics.
+- Typed Soroban events.
+
+### Chapter Payment
+
+The Chapter Payment contract supports:
+
+- Initialization.
+- Token contract configuration.
+- Chapter pricing.
+- Multi-chapter purchases.
+- Inter-contract token transfers.
+- Persistent payment records.
+- Per-wallet access counts.
+- Aggregate statistics.
+- Price updates.
+- Pause and resume controls.
+- Typed Soroban events.
+
+## Testnet Contract IDs
+
+Chapter Payment:
+
+    CD4Q4QQRSLMXOZCUE72OAXLKA5XBGAEO4G4O37BF4QIMOY7GQUHTAE2O
+
+Chapter Token:
+
+    CD4IL6YDYQRRLH5RKJCQ2D4XGQWJSLSOKBTGL6UE6VLBBL4I4EWEXTNR
+
+Runtime configuration:
+
+    frontend/public/contracts.json
 
 ## Repository Structure
 
     stellar-chapter-pay
     |-- .github
     |   `-- workflows
-    |       `-- ci.yml
+    |       |-- ci.yml
+    |       `-- level-5.yml
     |
     |-- contracts
     |   `-- chapter-unlock
     |       |-- contracts
     |       |   |-- chapter-payment
-    |       |   |   |-- Cargo.toml
-    |       |   |   `-- src
-    |       |   |       |-- lib.rs
-    |       |   |       `-- test.rs
-    |       |   |
     |       |   `-- chapter-token
-    |       |       |-- Cargo.toml
-    |       |       `-- src
-    |       |           |-- lib.rs
-    |       |           `-- test.rs
-    |       |
     |       |-- Cargo.toml
-    |       |-- Cargo.lock
-    |       `-- README.md
+    |       `-- Cargo.lock
     |
     |-- frontend
     |   |-- public
     |   |   `-- contracts.json
-    |   |
     |   |-- src
+    |   |   |-- components
     |   |   |-- services
-    |   |   |   |-- analytics.js
-    |   |   |   |-- api.js
-    |   |   |   `-- contract.js
-    |   |   |
     |   |   |-- utils
-    |   |   |   |-- cache.js
-    |   |   |   `-- cache.test.js
-    |   |   |
     |   |   |-- App.jsx
-    |   |   |-- App.css
-    |   |   |-- contractConfig.js
-    |   |   |-- index.css
-    |   |   `-- main.jsx
-    |   |
+    |   |   `-- App.css
     |   |-- package.json
-    |   |-- package-lock.json
-    |   `-- vite.config.js
+    |   `-- package-lock.json
     |
     |-- server
     |   |-- services
-    |   |   |-- contractService.ts
-    |   |   `-- dataService.ts
-    |   |
     |   |-- index.ts
     |   |-- index.test.ts
     |   |-- package.json
-    |   |-- package-lock.json
-    |   |-- tsconfig.json
-    |   |-- tsconfig.build.json
-    |   `-- vitest.config.ts
-    |
-    |-- docs
-    |   |-- ARCHITECTURE.md
-    |   `-- QUALITY_AND_DEPLOYMENT.md
+    |   `-- package-lock.json
     |
     |-- scripts
     |   |-- deploy-and-save.ps1
-    |   `-- verify-level4.ps1
+    |   |-- verify-level4.ps1
+    |   `-- verify-level5.ps1
     |
+    |-- docs
+    |   |-- ARCHITECTURE.md
+    |   |-- DEPLOYMENT.md
+    |   |-- LEVEL5_IMPLEMENTATION.md
+    |   `-- QUALITY_AND_DEPLOYMENT.md
+    |
+    |-- CONTRACT_ID.txt
     |-- Procfile
     |-- railway.toml
     |-- vercel.json
-    |-- README.md
-    `-- .gitignore
+    `-- README.md
 
-## Smart Contracts
+## Backend Endpoints
 
-### Chapter Payment Contract
+Public endpoints:
 
-Location:
+    GET  /health
+    GET  /api/config
+    GET  /api/functions
+    GET  /api/users/:walletAddress
+    POST /api/users
+    POST /api/interactions
+    POST /api/feedback
+    GET  /api/analytics
+    GET  /api/statistics/level-5
+    GET  /api/product-readiness
 
-    contracts/chapter-unlock/contracts/chapter-payment
+Private list endpoints:
 
-Responsibilities:
+    GET /api/users
+    GET /api/interactions
+    GET /api/feedback
 
-- Process chapter purchases.
-- Calculate the total payment.
-- Call the Chapter Token contract.
-- Transfer Chapter Coin from the user.
-- Store payment records.
-- Track unlocked chapters.
-- Track total revenue.
-- Track total payment count.
-- Support price administration.
-- Support pause and resume controls.
-- Publish typed Soroban events.
+Private list endpoints require:
 
-Contract functions:
+    x-admin-api-key
 
-| Function | Type | Purpose |
-|---|---|---|
-| `initialize` | Admin | Configure administrator, token contract, and price |
-| `unlock_with_payment` | Write | Pay Chapter Coin and unlock chapters |
-| `update_price` | Admin | Update the price per chapter |
-| `set_paused` | Admin | Pause or resume payments |
-| `get_unlocked_count` | Read | Read a user's unlocked chapter count |
-| `is_unlocked` | Read | Check whether a user has unlocked content |
-| `get_price_per_chapter` | Read | Read the current chapter price |
-| `get_total_price` | Read | Calculate the price for a quantity |
-| `get_token_contract` | Read | Read the configured token contract |
-| `get_admin` | Read | Read the contract administrator |
-| `is_paused` | Read | Read the current pause status |
-| `get_payment` | Read | Read a stored payment record |
-| `get_stats` | Read | Read aggregate payment statistics |
+The CSV export requires:
 
-### Chapter Token Contract
+    x-export-api-key
 
-Location:
+## Local Development
 
-    contracts/chapter-unlock/contracts/chapter-token
+Requirements:
 
-Responsibilities:
+- Node.js 24 or newer.
+- npm.
+- Rust stable.
+- Rust target `wasm32v1-none`.
+- Stellar CLI.
+- Freighter browser extension.
 
-- Store token metadata.
-- Track balances.
-- Track total supply.
-- Provide a one-time demo faucet.
-- Support administrator minting.
-- Transfer tokens.
-- Publish typed Soroban events.
+### Start the Backend
 
-Contract functions:
-
-| Function | Type | Purpose |
-|---|---|---|
-| `initialize` | Admin | Configure token metadata and administrator |
-| `faucet` | Write | Claim the one-time demo allocation |
-| `mint` | Admin | Mint Chapter Coin |
-| `transfer` | Write | Transfer Chapter Coin |
-| `balance` | Read | Read an account balance |
-| `has_claimed` | Read | Check whether an account used the faucet |
-| `name` | Read | Read the token name |
-| `symbol` | Read | Read the token symbol |
-| `decimals` | Read | Read token decimals |
-| `admin` | Read | Read the token administrator |
-| `total_supply` | Read | Read total token supply |
-| `get_stats` | Read | Read token statistics |
-
-## Payment Flow
-
-1. The user connects Freighter on Stellar Testnet.
-2. The frontend loads both contract IDs.
-3. The frontend reads the user's Chapter Coin balance.
-4. The user chooses a chapter quantity.
-5. The frontend calculates the estimated payment.
-6. Freighter requests transaction authorization.
-7. The Chapter Payment contract calls the Chapter Token contract.
-8. Chapter Coin is transferred from the user.
-9. A payment record is stored.
-10. The user's unlocked chapter count is updated.
-11. Aggregate payment statistics are updated.
-12. The frontend waits for RPC confirmation.
-13. The dashboard refreshes the latest state.
-
-## Frontend
-
-The frontend is built with:
-
-- React
-- Vite
-- Freighter API
-- Stellar JavaScript SDK
-- Vitest
-- ESLint
-
-The Stellar transaction logic is separated from the main UI component.
-
-Important frontend files:
-
-| File | Purpose |
-|---|---|
-| `src/App.jsx` | Dashboard state and user interface |
-| `src/services/contract.js` | Stellar RPC and Soroban transactions |
-| `src/services/api.js` | Backend API requests |
-| `src/services/analytics.js` | Local analytics events |
-| `src/contractConfig.js` | Stellar network and contract configuration |
-| `src/utils/cache.js` | Browser cache and purchase validation |
-| `public/contracts.json` | Runtime contract IDs |
-
-## Backend
-
-The backend is built with:
-
-- Node.js
-- Express
-- TypeScript
-- Vitest
-- Supertest
-
-Backend endpoints:
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| GET | `/health` | Service health check |
-| GET | `/api/config` | Stellar runtime configuration |
-| GET | `/api/functions` | Contract function coverage |
-| GET | `/api/interactions` | List wallet interactions |
-| POST | `/api/interactions` | Record a wallet interaction |
-| GET | `/api/feedback` | List product feedback |
-| POST | `/api/feedback` | Submit product feedback |
-| GET | `/api/analytics` | Product analytics summary |
-| GET | `/api/product-readiness` | Product readiness status |
-
-The current backend uses bounded in-memory storage for product validation data.
-
-This is suitable for Testnet MVP validation. A persistent database can replace the storage service in a later version.
-
-## Requirements
-
-Recommended local environment:
-
-- Node.js 24 or newer
-- npm 11 or newer
-- Rust 1.96 or newer
-- Cargo 1.96 or newer
-- Stellar CLI 27 or newer
-- Git
-- PowerShell
-- Freighter wallet
-- Rust target `wasm32v1-none`
-
-Install the Rust target:
-
-    rustup target add wasm32v1-none
-
-Confirm the tools:
-
-    node --version
-    npm --version
-    rustc --version
-    cargo --version
-    stellar --version
-    git --version
-
-## Run the Frontend
-
-Open PowerShell in VS Code:
-
-    Set-Location "D:\StellarBuilds\stellar-chapter-pay\frontend"
-
-    npm ci
-    npm run dev
-
-The Vite development server normally starts at:
-
-    http://localhost:5173
-
-## Run the Backend
-
-Open another PowerShell terminal:
+Open PowerShell:
 
     Set-Location "D:\StellarBuilds\stellar-chapter-pay\server"
 
     npm ci
+
+    $env:PORT = "3001"
+    $env:ADMIN_API_KEY = "local-admin-key"
+    $env:EXPORT_API_KEY = "local-export-key"
+
     npm run dev
 
-The backend normally starts at:
+Without `DATABASE_URL`, local development uses temporary memory storage. Memory data is cleared when the backend restarts.
 
-    http://localhost:3001
+### Start the Frontend
 
-Health endpoint:
+Open another PowerShell window:
 
-    http://localhost:3001/health
+    Set-Location "D:\StellarBuilds\stellar-chapter-pay\frontend"
 
-## Backend Environment
+    npm ci
 
-Copy:
+    $env:VITE_API_BASE_URL = "http://127.0.0.1:3001"
 
-    server/.env.example
+    npm run dev -- --host 127.0.0.1 --port 5173
 
-to:
+Open:
 
-    server/.env
+    http://127.0.0.1:5173
 
-Available variables:
+## Environment Variables
 
-    PORT=3001
-    CORS_ORIGIN=http://localhost:5173
+Production backend variables:
+
+    NODE_ENV=production
+    DATABASE_URL=<postgresql-connection-string>
+    ADMIN_API_KEY=<long-random-secret>
+    EXPORT_API_KEY=<different-long-random-secret>
+    CORS_ORIGIN=https://your-frontend-domain.example
+
+Frontend variable:
+
+    VITE_API_BASE_URL=https://your-backend-domain.example
+
+Stellar backend configuration:
+
     STELLAR_NETWORK=TESTNET
     STELLAR_RPC_URL=https://soroban-testnet.stellar.org:443
     STELLAR_EXPLORER_URL=https://stellar.expert/explorer/testnet
-    CHAPTER_PAYMENT_CONTRACT_ID=
-    CHAPTER_TOKEN_CONTRACT_ID=
+    CHAPTER_PAYMENT_CONTRACT_ID=CD4Q4QQRSLMXOZCUE72OAXLKA5XBGAEO4G4O37BF4QIMOY7GQUHTAE2O
+    CHAPTER_TOKEN_CONTRACT_ID=CD4IL6YDYQRRLH5RKJCQ2D4XGQWJSLSOKBTGL6UE6VLBBL4I4EWEXTNR
 
-Do not commit the `.env` file.
+Do not commit secrets or local `.env` files.
 
-<!-- TESTNET_DEPLOYMENT_START -->
-## Current Stellar Testnet Deployment
+## Technical Verification
 
-The production MVP contracts are deployed and initialized on Stellar Testnet.
-
-| Contract | Contract ID |
-|---|---|
-| Chapter Payment | CD4Q4QQRSLMXOZCUE72OAXLKA5XBGAEO4G4O37BF4QIMOY7GQUHTAE2O |
-| Chapter Token | CD4IL6YDYQRRLH5RKJCQ2D4XGQWJSLSOKBTGL6UE6VLBBL4I4EWEXTNR |
-
-Contract explorer pages:
-
-- Chapter Payment: https://stellar.expert/explorer/testnet/contract/CD4Q4QQRSLMXOZCUE72OAXLKA5XBGAEO4G4O37BF4QIMOY7GQUHTAE2O
-- Chapter Token: https://stellar.expert/explorer/testnet/contract/CD4IL6YDYQRRLH5RKJCQ2D4XGQWJSLSOKBTGL6UE6VLBBL4I4EWEXTNR
-
-Deployment configuration:
-
-- Network: Stellar Testnet
-- Price per chapter: 5 Chapter Coins
-- Demo faucet amount: 100 Chapter Coins
-- Contract initialization: completed
-- Inter-contract payment smoke test: passed
-
-Verified payment flow:
-
-1. The deployer claimed 100 Chapter Coins.
-2. The deployer unlocked 2 chapters.
-3. The Chapter Payment contract charged 10 Chapter Coins.
-4. The remaining balance became 90 Chapter Coins.
-5. Payment statistics and unlocked chapter count were updated.
-<!-- TESTNET_DEPLOYMENT_END -->
-
-## Contract Configuration
-
-The frontend loads contract IDs from:
-
-    frontend/public/contracts.json
-
-Expected structure:
-
-    {
-      "network": "TESTNET",
-      "chapter_contract_id": "C...",
-      "token_contract_id": "C...",
-      "updated_at": "2026-01-01T00:00:00.000Z"
-    }
-
-The deployment script updates this file automatically after deployment.
-
-## Contract Validation
-
-Run from the contract workspace:
-
-    Set-Location "D:\StellarBuilds\stellar-chapter-pay\contracts\chapter-unlock"
-
-    cargo fmt --all -- --check
-    cargo check --workspace --locked --target wasm32v1-none
-    cargo test --workspace --locked
-    cargo build --workspace --locked --target wasm32v1-none --release
-    stellar contract build
-
-Current automated contract coverage:
-
-- 7 Chapter Payment tests.
-- 7 Chapter Token tests.
-- 14 total smart contract tests.
-
-## Frontend Validation
-
-    Set-Location "D:\StellarBuilds\stellar-chapter-pay\frontend"
-
-    npm ci
-    npm run lint
-    npm test
-    npm run build
-    npm audit
-
-Current frontend test coverage includes:
-
-- Cache storage.
-- Cache removal.
-- Application cache clearing.
-- Soroban integer normalization.
-- Wallet validation.
-- Quantity validation.
-- Balance validation.
-- Chapter purchase eligibility.
-
-## Backend Validation
-
-    Set-Location "D:\StellarBuilds\stellar-chapter-pay\server"
-
-    npm ci
-    npm run type-check
-    npm test
-    npm run build
-    npm audit
-
-Current backend coverage includes:
-
-- Health response.
-- Runtime configuration.
-- Contract function coverage.
-- Interaction creation.
-- Interaction validation.
-- Interaction listing.
-- Feedback creation.
-- Feedback validation.
-- Analytics summaries.
-- Product readiness.
-- Structured 404 responses.
-
-## Full Level 4 Verification
-
-Run the complete local verification from the repository root:
+Run from the repository root:
 
     Set-Location "D:\StellarBuilds\stellar-chapter-pay"
 
-    Set-ExecutionPolicy `
-        -Scope Process `
-        -ExecutionPolicy Bypass
+    powershell.exe `
+        -NoProfile `
+        -ExecutionPolicy Bypass `
+        -File ".\scripts\verify-level5.ps1"
 
-    .\scripts\verify-level4.ps1
+The verifier checks:
 
-The script checks:
-
-- Required files.
-- Git identity and remote.
-- Generated file tracking.
-- Old template references.
-- Public documentation wording.
-- Deployment configuration.
-- CI configuration.
+- Repository structure.
+- Level 5 integrations.
 - Contract formatting.
-- Contract tests.
-- WASM builds.
-- Stellar contract builds.
-- Frontend lint.
-- Frontend tests.
-- Frontend build.
-- Frontend dependency audit.
-- Backend type-check.
+- Contract WASM checks.
+- Fourteen contract tests.
+- Contract release builds.
+- Backend type-checking.
 - Backend tests.
-- Backend build.
+- Backend production build.
 - Backend dependency audit.
+- Frontend linting.
+- Frontend tests.
+- Frontend production build.
+- Frontend dependency audit.
+- Environment file protection.
+- Minimum commit count.
 - Git formatting.
 
-Expected final message:
+Expected result:
 
-    Level 4 local verification passed.
-
-## Deploy Contracts to Stellar Testnet
-
-The deployment script:
-
-- Verifies the local environment.
-- Creates or loads a Testnet deployer identity.
-- Builds both contracts.
-- Deploys Chapter Token.
-- Deploys Chapter Payment.
-- Initializes both contracts.
-- Saves the deployed contract IDs.
-- Updates the frontend runtime configuration.
-
-Run:
-
-    Set-Location "D:\StellarBuilds\stellar-chapter-pay"
-
-    .\scripts\deploy-and-save.ps1
-
-Optional parameters:
-
-    .\scripts\deploy-and-save.ps1 `
-        -Identity "chapter-pay-deployer" `
-        -Network "testnet" `
-        -PricePerChapter 5 `
-        -TokenName "Chapter Coin" `
-        -TokenSymbol "COIN" `
-        -TokenDecimals 0
-
-Deployment output is saved to:
-
-    frontend/public/contracts.json
-    CONTRACT_ID.txt
-
-## Deployment
-
-### Frontend with Vercel
-
-The repository includes:
-
-    vercel.json
-
-Configured commands:
-
-    Install: cd frontend && npm ci
-    Build: cd frontend && npm run build
-    Output: frontend/dist
-
-Optional environment variable:
-
-    VITE_API_URL=https://your-backend-domain.example
-
-### Backend with Railway
-
-The repository includes:
-
-    railway.toml
-    Procfile
-
-Configured commands:
-
-    Build: cd server && npm ci && npm run build
-    Start: cd server && npm start
-    Health check: /health
-
-Railway environment variables should be configured through the Railway dashboard.
+    LEVEL 5 TECHNICAL VERIFICATION PASSED
 
 ## Continuous Integration
 
-GitHub Actions configuration:
+The Level 5 GitHub Actions workflow is:
 
-    .github/workflows/ci.yml
+    .github/workflows/level-5.yml
 
-CI jobs:
+It verifies contracts, backend, frontend, security checks, and repository requirements.
 
-1. Smart Contract CI
-2. Frontend CI
-3. Backend CI
-4. Deployment Config Detection
+## Deployment
 
-The smart contract CI validates the Rust workspace without requiring Stellar CLI installation on the GitHub runner.
+Deployment documentation:
 
-## Security and Quality
+- [Deployment Guide](docs/DEPLOYMENT.md)
+- [Level 5 Implementation](docs/LEVEL5_IMPLEMENTATION.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Quality and Deployment](docs/QUALITY_AND_DEPLOYMENT.md)
+
+Recommended deployment order:
+
+1. PostgreSQL.
+2. Railway backend.
+3. Vercel frontend.
+4. End-to-end smoke test.
+
+## Security
 
 The project includes:
 
-- Administrator authorization.
-- Checked arithmetic.
-- Typed contract errors.
-- Typed Soroban events.
+- Freighter authorization and transaction signing.
+- Administrator-only contract functions.
+- Checked contract arithmetic.
 - Input validation.
 - One-time faucet protection.
-- Insufficient balance handling.
-- Transaction rejection handling.
-- Loading states.
-- Failure states.
+- PostgreSQL parameterized queries.
 - Request body size limits.
-- Dependency audits.
+- Protected private endpoints.
+- Constant-time API key comparison.
+- Separate admin and export secrets.
+- Dependency security audits.
 - Environment file protection.
 - Generated file protection.
-- Automated CI validation.
 
 Never commit:
 
 - `.env`
 - `.env.local`
+- `DATABASE_URL`
+- `ADMIN_API_KEY`
+- `EXPORT_API_KEY`
+- wallet secret keys
+- exported user data
 - `node_modules`
 - `dist`
 - `target`
-- `.vite`
-- local backup files
-- deployment temporary files
-- contract test snapshots
 
-## Documentation
+## Validation Status
 
-Additional documentation:
+The technical Level 5 infrastructure is implemented and locally verified.
 
-- `docs/ARCHITECTURE.md`
-- `docs/QUALITY_AND_DEPLOYMENT.md`
-- `contracts/chapter-unlock/README.md`
+Real-user evidence is a separate phase and has not been claimed in this repository. Local smoke-test data must not be counted as genuine product usage.
 
-## Current Scope
-
-This repository is a Stellar Testnet MVP.
-
-Current limitations:
-
-- Backend analytics data is stored in memory.
-- Contract IDs must be deployed and configured before live transactions.
-- Chapter content delivery is represented by access counts.
-- Mainnet deployment is not included in the current version.
-
-## Roadmap
-
-### Testnet MVP
-
-- Deploy contracts to Stellar Testnet.
-- Validate Freighter onboarding.
-- Test bulk chapter purchases.
-- Collect user feedback.
-- Track wallet interactions.
-- Monitor transaction reliability.
-
-### Product Validation
-
-- Add persistent analytics storage.
-- Improve onboarding based on feedback.
-- Expand content access records.
-- Add creator and publisher dashboards.
-- Improve transaction monitoring.
-
-### Future Production Version
-
-- Persistent database integration.
-- Mainnet deployment.
-- Creator revenue distribution.
-- Expanded content ownership records.
-- Additional wallet support.
-- External monitoring and analytics.
-- Stablecoin payment options.
+The later validation phase should collect genuine Stellar Testnet wallets, real transaction hashes, user feedback, exported evidence, analytics screenshots, product improvements, a pitch deck, and a complete walkthrough video.
 
 ## License
 
-This project is provided for Stellar development, testing, and product validation.
+This repository is provided as a Stellar Testnet educational and product-validation project.

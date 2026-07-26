@@ -1,213 +1,459 @@
 # Quality and Deployment
 
-## Quality Goals
+## Purpose
 
-Stellar Chapter Pay is structured as a production-ready testnet MVP rather than a single-file demonstration.
+This document defines the technical quality gates and release process for Stellar Chapter Pay.
 
-Quality validation covers:
+The Level 5 technical implementation includes:
 
-- Soroban contract formatting.
-- Soroban contract tests.
-- WASM contract checks.
-- WASM release builds.
-- Frontend linting.
-- Frontend tests.
-- Frontend production builds.
-- Backend type-checking.
-- Backend tests.
-- Backend production builds.
-- Dependency security audits.
-- Deployment configuration detection.
-- Repository structure validation.
+- Soroban contracts.
+- Freighter integration.
+- User onboarding.
+- PostgreSQL persistence.
+- Transaction activity tracking.
+- Product feedback.
+- Live usage statistics.
+- Protected administration.
+- CSV export.
+- Automated local verification.
+- GitHub Actions verification.
+- Railway and Vercel deployment configuration.
 
-## Smart Contract Validation
+Real-user evidence is a separate validation phase.
 
-Run from contracts/chapter-unlock:
+## Quality Principles
+
+Every release must:
+
+- Preserve existing product behavior.
+- Use meaningful commits.
+- Pass automated tests.
+- Pass production builds.
+- Pass dependency audits.
+- Avoid tracked secrets.
+- Avoid generated build output in Git.
+- Keep private user data outside the public repository.
+- Use genuine evidence only.
+- Clearly distinguish test data from real usage.
+
+## Repository Quality Gate
+
+Run from:
+
+    D:\StellarBuilds\stellar-chapter-pay
+
+Command:
+
+    powershell.exe `
+        -NoProfile `
+        -ExecutionPolicy Bypass `
+        -File ".\scripts\verify-level5.ps1"
+
+Expected result:
+
+    LEVEL 5 TECHNICAL VERIFICATION PASSED
+
+For a faster repeated local check with installed dependencies:
+
+    powershell.exe `
+        -NoProfile `
+        -ExecutionPolicy Bypass `
+        -File ".\scripts\verify-level5.ps1" `
+        -SkipInstall
+
+## Smart Contract Quality
+
+Contract workspace:
+
+    contracts/chapter-unlock
+
+Required checks:
 
     cargo fmt --all -- --check
-    cargo check --workspace --target wasm32v1-none
-    cargo test --workspace
-    cargo build --workspace --target wasm32v1-none --release
 
-Current contract coverage includes:
+    cargo check `
+        --workspace `
+        --target wasm32v1-none `
+        --locked
 
-- Token initialization.
+    cargo test `
+        --workspace `
+        --locked
+
+    cargo build `
+        --workspace `
+        --target wasm32v1-none `
+        --release `
+        --locked
+
+The workspace currently contains tests for:
+
+- Chapter Token initialization.
+- Administrator behavior.
+- Faucet behavior.
+- Balance behavior.
+- Transfer behavior.
 - Token metadata.
-- Faucet claims.
-- Token minting.
-- Token transfers.
-- Insufficient balance handling.
 - Chapter Payment initialization.
+- Pricing.
 - Multi-chapter payments.
-- Inter-contract token transfers.
-- Payment record storage.
-- Aggregate payment statistics.
-- Administrator price updates.
-- Pause and resume controls.
-- Invalid quantity handling.
+- Access counts.
+- Aggregate statistics.
+- Pause and resume behavior.
+- Administrative authorization.
+- Failure conditions.
 
-## Frontend Validation
+## Backend Quality
 
-Run from frontend:
+Backend directory:
 
-    npm ci
-    npm run lint
-    npm test
-    npm run build
-    npm audit
+    server
 
-Frontend validation covers:
-
-- Browser cache helpers.
-- Purchase eligibility validation.
-- Contract configuration loading.
-- Responsive production build.
-- Contract service integration.
-- Wallet and transaction state handling.
-- Dependency security.
-
-Generated frontend files are excluded from version control.
-
-## Backend Validation
-
-Run from server:
+Required commands:
 
     npm ci
     npm run type-check
     npm test
     npm run build
-    npm audit
+    npm audit --audit-level=high
 
-Backend validation covers:
+The backend test suite covers:
 
-- Health endpoint.
-- Runtime configuration endpoint.
-- Contract function coverage.
-- Wallet interaction recording.
-- Interaction validation.
-- Feedback recording.
+- Health information.
+- Runtime configuration.
+- Contract function information.
+- User registration.
+- Wallet-to-user mapping.
+- User lookup.
+- User listing authorization.
+- Interaction creation.
+- Interaction listing authorization.
+- Feedback creation.
+- Feedback listing authorization.
+- Analytics.
+- Level 5 statistics.
+- CSV export authorization.
+- Admin API key behavior.
+- PostgreSQL configuration.
+- Database schema.
+- Memory fallback behavior.
+- Product readiness.
+- Unknown routes.
+
+## Frontend Quality
+
+Frontend directory:
+
+    frontend
+
+Required commands:
+
+    npm ci
+    npm run lint
+    npm test
+    npm run build
+    npm audit --audit-level=high
+
+The frontend test suite covers:
+
+- Cache helpers.
+- User onboarding validation.
+- Backend API behavior.
+- Activity synchronization.
 - Feedback validation.
-- Analytics summaries.
-- Product readiness reporting.
-- Structured 404 responses.
+- Level 5 statistics normalization.
+- Statistics API behavior.
+
+Production build output must not remain tracked.
+
+Generated directory:
+
+    frontend/dist
+
+## Dependency Security
+
+Both frontend and backend must pass:
+
+    npm audit --audit-level=high
+
+A release must not proceed with unresolved high or critical vulnerabilities.
+
+Dependency upgrades should:
+
+- Use exact or controlled versions where appropriate.
+- Regenerate package lockfiles.
+- Run all tests after changes.
+- Run production builds after changes.
+- Avoid unrelated dependency changes.
+
+## Secret Protection
+
+Never commit:
+
+- `.env`
+- `.env.local`
+- `DATABASE_URL`
+- `ADMIN_API_KEY`
+- `EXPORT_API_KEY`
+- Railway access tokens
+- Vercel access tokens
+- Stellar secret keys
+- Exported user CSV files
+- Private user data
+
+Example environment files may be committed only when they contain placeholders.
+
+The Level 5 verifier checks that private environment files are not tracked.
+
+## API Security
+
+Private list endpoints require:
+
+    x-admin-api-key
+
+Protected routes:
+
+    GET /api/users
+    GET /api/interactions
+    GET /api/feedback
+
+The data export endpoint requires:
+
+    x-export-api-key
+
+Protected export route:
+
+    GET /api/exports/level-5.csv
+
+Public aggregate statistics do not expose personally identifiable information.
+
+Public statistics route:
+
+    GET /api/statistics/level-5
+
+## Production Requirements
+
+The backend refuses production startup without:
+
+    DATABASE_URL
+    ADMIN_API_KEY
+
+The export endpoint is unavailable without:
+
+    EXPORT_API_KEY
+
+Recommended production values:
+
+    NODE_ENV=production
+    DATABASE_URL=<managed-postgresql-url>
+    ADMIN_API_KEY=<long-random-secret>
+    EXPORT_API_KEY=<different-long-random-secret>
+    CORS_ORIGIN=https://your-frontend-domain.example
+
+Frontend:
+
+    VITE_API_BASE_URL=https://your-backend-domain.example
+
+Do not use the same value for admin and export keys.
+
+## Deployment Order
+
+Recommended order:
+
+1. Run full local verification.
+2. Commit all intended changes.
+3. Push `main`.
+4. Confirm GitHub Actions passes.
+5. Create the PostgreSQL database.
+6. Deploy the Railway backend.
+7. Verify `/health`.
+8. Verify `/api/statistics/level-5`.
+9. Deploy the Vercel frontend.
+10. Update Railway `CORS_ORIGIN`.
+11. Run an end-to-end smoke test.
+12. Record deployment URLs in the README or submission materials.
+
+Detailed steps:
+
+- [Deployment Guide](DEPLOYMENT.md)
+- [Level 5 Implementation](LEVEL5_IMPLEMENTATION.md)
+- [Architecture](ARCHITECTURE.md)
+
+## Railway Backend Checks
+
+After deployment, verify:
+
+    https://your-backend-domain.example/health
+
+Expected storage:
+
+    postgresql
+
+Verify public statistics:
+
+    https://your-backend-domain.example/api/statistics/level-5
+
+Verify private endpoint protection:
+
+    GET /api/users
+
+Without the correct key, the response must be:
+
+    401 Unauthorized
+
+## Vercel Frontend Checks
+
+After deployment:
+
+1. Open the Vercel URL.
+2. Check that no blank page appears.
+3. Confirm contract configuration loads.
+4. Confirm the Level 5 statistics request reaches the backend.
+5. Connect Freighter on Testnet.
+6. Complete onboarding.
+7. Claim demo Chapter Coin.
+8. Unlock a chapter.
+9. Open the transaction explorer link.
+10. Submit feedback.
+11. Refresh Level 5 statistics.
+
+## Production Smoke-Test Data
+
+One deployment smoke-test profile may be created to verify the system.
+
+It must be clearly identified as test data.
+
+It must not be counted toward:
+
+- Genuine user totals.
+- Genuine feedback totals.
+- Genuine transaction adoption.
+- Final Level 5 evidence.
+
+The smoke-test record may be removed from PostgreSQL before real-user onboarding begins.
 
 ## Continuous Integration
 
-GitHub Actions validates four areas:
+Workflow:
 
-1. Smart Contract CI
-2. Frontend CI
-3. Backend CI
-4. Deployment Configuration Detection
+    .github/workflows/level-5.yml
 
-The smart contract job does not require installing Stellar CLI on the GitHub runner. It validates the Rust workspace directly with Cargo and the wasm32v1-none target.
+The workflow runs on:
 
-Local deployment remains the responsibility of the PowerShell deployment script.
+- Push to `main`.
+- Push to `level-5-upgrade`.
+- Pull requests targeting `main`.
+- Manual workflow dispatch.
 
-## Frontend Deployment
+The workflow verifies:
 
-The frontend is designed for Vercel.
+- Rust contract workspace.
+- Backend.
+- Frontend.
+- Security checks.
+- Repository requirements.
 
-Expected deployment settings:
+A release should not proceed while the Level 5 workflow is failing.
 
-- Root directory: frontend
-- Framework: Vite
-- Install command: npm ci
-- Build command: npm run build
-- Output directory: dist
+## Git Quality
 
-Optional environment variable:
+Before committing:
 
-    VITE_API_URL=https://your-backend-domain.example
-
-## Backend Deployment
-
-The backend is designed for Railway.
-
-Expected deployment settings:
-
-- Root directory: server
-- Install command: npm ci
-- Build command: npm run build
-- Start command: npm start
-
-Required or optional environment variables:
-
-    PORT=3001
-    CORS_ORIGIN=https://your-frontend-domain.example
-    STELLAR_NETWORK=TESTNET
-    STELLAR_RPC_URL=https://soroban-testnet.stellar.org:443
-    STELLAR_EXPLORER_URL=https://stellar.expert/explorer/testnet
-    CHAPTER_PAYMENT_CONTRACT_ID=
-    CHAPTER_TOKEN_CONTRACT_ID=
-
-Contract IDs must be populated after deployment.
-
-## Contract Deployment
-
-The local deployment workflow should:
-
-1. Format contract source files.
-2. Run contract tests.
-3. Build Soroban WASM files.
-4. Confirm or create a Stellar Testnet identity.
-5. Deploy Chapter Token.
-6. Deploy Chapter Payment.
-7. Initialize Chapter Token.
-8. Initialize Chapter Payment with the Chapter Token address.
-9. Store deployed contract IDs.
-10. Update frontend runtime configuration.
-
-## Generated Files
-
-The following files and directories must not be committed:
-
-- node_modules
-- dist
-- target
-- .vite
-- .stellar
-- .env
-- .env.local
-- deployment temporary output
-- local backup files
-- Soroban test snapshots
-
-Lockfiles must remain committed:
-
-- Cargo.lock
-- frontend/package-lock.json
-- server/package-lock.json
-
-## Pre-Push Verification
-
-Before pushing:
-
-    git remote -v
-    git config user.name
-    git config user.email
-    git status
     git diff --check
 
-Then run the full verification script.
+Inspect changes:
 
-Expected result:
+    git -c core.pager=cat diff --stat
 
-    Level 4 local verification passed.
+Inspect contributors:
 
-After verification, confirm:
+    git -c core.pager=cat shortlog -sne --all
 
-- Working tree is clean.
-- Git remote points to the correct repository.
-- Commit author and committer use the correct account.
-- No generated files are tracked.
-- GitHub Actions is green.
-- README and architecture documentation match the implemented functions.
+Inspect working tree:
 
-## Production Readiness Notes
+    git status --short --branch
 
-The current backend stores product validation data in memory. This is appropriate for the current testnet validation phase but does not persist through server restarts.
+Commit messages should follow Conventional Commits.
 
-Before long-term production usage, replace the in-memory storage implementation with a managed persistent database.
+Examples:
 
-The API structure is already separated from the storage service, allowing this change without restructuring frontend integration.
+    feat(frontend): add product feedback form
+
+    feat(api): add Level 5 statistics endpoint
+
+    feat(security): protect private admin endpoints
+
+    ci: add Level 5 verification workflow
+
+    docs: document Level 5 architecture and deployment
+
+Do not create fake commits solely to increase commit count.
+
+## Release Checklist
+
+Technical checklist:
+
+- [ ] Contract formatting passes.
+- [ ] Contract WASM check passes.
+- [ ] Contract tests pass.
+- [ ] Contract release build passes.
+- [ ] Backend type-check passes.
+- [ ] Backend tests pass.
+- [ ] Backend build passes.
+- [ ] Backend audit passes.
+- [ ] Frontend lint passes.
+- [ ] Frontend tests pass.
+- [ ] Frontend build passes.
+- [ ] Frontend audit passes.
+- [ ] `git diff --check` passes.
+- [ ] No private environment files are tracked.
+- [ ] GitHub Actions passes.
+- [ ] PostgreSQL health is confirmed.
+- [ ] Backend production URL works.
+- [ ] Frontend production URL works.
+- [ ] Admin endpoints reject invalid keys.
+- [ ] Export endpoint rejects invalid keys.
+- [ ] End-to-end Testnet smoke test succeeds.
+
+Level 5 evidence checklist:
+
+- [ ] At least 50 genuine Testnet users.
+- [ ] Distinct real wallet addresses.
+- [ ] Genuine successful transaction hashes.
+- [ ] Google Form responses.
+- [ ] Excel or Google Sheet export.
+- [ ] Feedback summary.
+- [ ] Improvements based on feedback.
+- [ ] Commit links for improvements.
+- [ ] Final analytics screenshots.
+- [ ] Professional pitch deck.
+- [ ] Complete walkthrough video.
+
+The evidence checklist remains separate from technical deployment readiness.
+
+## Rollback Quality Gate
+
+Frontend rollback:
+
+1. Restore the previous successful Vercel deployment.
+2. Verify `VITE_API_BASE_URL`.
+3. Retest the statistics dashboard.
+4. Retest Freighter connection.
+
+Backend rollback:
+
+1. Restore the previous successful Railway deployment.
+2. Preserve PostgreSQL data.
+3. Verify environment variables.
+4. Verify `/health`.
+5. Verify private endpoint protection.
+
+Contract changes require a new Testnet deployment and a deliberate contract ID update. Existing Testnet contracts are not automatically rolled back.
+
+## Current Status
+
+The Level 5 technical infrastructure is implemented and locally verified.
+
+The project is ready for final documentation verification, deployment configuration review, and later real-user validation.
+
+No claim is made that the required real-user validation evidence has already been completed.
