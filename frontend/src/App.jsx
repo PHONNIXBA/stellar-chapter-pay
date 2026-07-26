@@ -14,6 +14,8 @@ import {
 
 import "./App.css";
 
+import OnboardingForm from "./components/OnboardingForm";
+
 import {
   createTransactionExplorerUrl,
   hasCompleteContractConfig,
@@ -34,6 +36,10 @@ import {
   readLocalAnalyticsEvents,
   trackAnalyticsEvent,
 } from "./services/analytics";
+
+import {
+  fetchUserByWallet,
+} from "./services/api";
 
 import {
   CACHE_KEYS,
@@ -267,6 +273,16 @@ function App() {
       .slice(0, 6)
   );
 
+  const [
+    onboardingUser,
+    setOnboardingUser,
+  ] = useState(null);
+
+  const [
+    isLoadingOnboardingUser,
+    setIsLoadingOnboardingUser,
+  ] = useState(false);
+
   const contractsLoaded =
     hasCompleteContractConfig({
       chapterContractId,
@@ -335,6 +351,51 @@ function App() {
     },
     []
   );
+
+  const loadOnboardingUser =
+    useCallback(
+      async (address) => {
+        if (!address) {
+          setOnboardingUser(null);
+          setIsLoadingOnboardingUser(false);
+          return;
+        }
+
+        setOnboardingUser(null);
+        setIsLoadingOnboardingUser(true);
+
+        try {
+          const result =
+            await fetchUserByWallet(
+              address
+            );
+
+          setOnboardingUser(
+            result?.user || null
+          );
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.status === 404
+          ) {
+            setOnboardingUser(null);
+            return;
+          }
+
+          console.warn(
+            "Onboarding profile could not be loaded:",
+            error
+          );
+
+          setOnboardingUser(null);
+        } finally {
+          setIsLoadingOnboardingUser(
+            false
+          );
+        }
+      },
+      []
+    );
 
   useEffect(() => {
     let isActive = true;
@@ -603,6 +664,10 @@ function App() {
           nextWalletAddress
         );
 
+        void loadOnboardingUser(
+          nextWalletAddress
+        );
+
         recordActivity(
           "wallet_connected",
           {
@@ -644,6 +709,8 @@ function App() {
       );
 
       setIsWalletConnected(false);
+      setOnboardingUser(null);
+      setIsLoadingOnboardingUser(false);
       setUnlockedCount("0");
       setPricePerChapter("...");
       setTokenBalance("0");
@@ -1010,6 +1077,48 @@ function App() {
             </button>
           </section>
         )}
+
+        <section className="onboarding-wrapper">
+          {isLoadingOnboardingUser ? (
+            <div
+              className="onboarding-loading"
+              role="status"
+              aria-live="polite"
+            >
+              Loading the profile linked
+              to this Stellar wallet...
+            </div>
+          ) : (
+            <OnboardingForm
+              key={
+                `${walletAddress}:` +
+                `${
+                  onboardingUser?.id ||
+                  "new"
+                }`
+              }
+              walletAddress={
+                isWalletConnected
+                  ? walletAddress
+                  : ""
+              }
+              existingUser={
+                onboardingUser
+              }
+              onRegistered={(user) => {
+                setOnboardingUser(user);
+
+                recordActivity(
+                  "profile_registered",
+                  {
+                    walletAddress:
+                      user.walletAddress,
+                  }
+                );
+              }}
+            />
+          )}
+        </section>
 
         <section className="metrics-grid">
           <article className="metric-card">
