@@ -816,3 +816,44 @@
 }
 
 /* END COMPACT USER ACTIVITY */
+/* BEGIN FULL WALLET ADDRESS */
+
+.wallet-address-row {
+  align-items: flex-start;
+}
+
+.wallet-address-row > span {
+  flex: 0 0 auto;
+}
+
+.wallet-full-address {
+  flex: 1;
+  min-width: 0;
+  max-width: none !important;
+  color: #dbe7f8;
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  text-align: right;
+  word-break: break-word;
+}
+
+@media (max-width: 680px) {
+  .wallet-address-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .wallet-full-address {
+    width: 100%;
+    text-align: left;
+  }
+}
+
+/* END FULL WALLET ADDRESS */

@@ -7,13 +7,6 @@ function EvidencePage() {
     <main className="evidence-page">
       <header className="evidence-page-header">
         <div className="evidence-page-navigation">
-          <a
-            className="evidence-back-link"
-            href="/"
-          >
-            ← Back to Chapter Pay
-          </a>
-
           <span className="evidence-page-badge">
             Stellar Testnet
           </span>

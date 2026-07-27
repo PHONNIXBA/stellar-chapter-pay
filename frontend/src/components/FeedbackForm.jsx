@@ -18,6 +18,18 @@ import {
   normalizeWalletAddress,
 } from "../utils/onboarding";
 
+const DEFAULT_IMPROVEMENT_CATEGORY =
+  FEEDBACK_CATEGORIES.find(
+    (category) =>
+      String(
+        category?.label || ""
+      ).toLowerCase() === "other"
+  )?.value ||
+  FEEDBACK_CATEGORIES[
+    FEEDBACK_CATEGORIES.length - 1
+  ]?.value ||
+  "other";
+
 function shortenWallet(
   walletAddress
 ) {
@@ -59,11 +71,6 @@ function FeedbackForm({
     rating,
     setRating,
   ] = useState("5");
-
-  const [
-    improvementCategory,
-    setImprovementCategory,
-  ] = useState("onboarding");
 
   const [
     comment,
@@ -118,7 +125,8 @@ function FeedbackForm({
           walletAddress,
           rating,
           comment,
-          improvementCategory,
+          improvementCategory:
+            DEFAULT_IMPROVEMENT_CATEGORY,
         });
 
       const result =
@@ -178,7 +186,7 @@ function FeedbackForm({
             Feedback is linked only to
             the connected wallet and will
             appear in the public evidence
-            table.
+            page.
           </p>
         </div>
 
@@ -272,46 +280,6 @@ function FeedbackForm({
 
         <label
           className="feedback-field"
-          htmlFor="feedback-category"
-        >
-          <span>
-            Improvement category
-          </span>
-
-          <select
-            id="feedback-category"
-            value={
-              improvementCategory
-            }
-            disabled={
-              requestState ===
-                "submitting" ||
-              !profileIsReady
-            }
-            onChange={(event) => {
-              setImprovementCategory(
-                event.target.value
-              );
-
-              setRequestState("idle");
-              setMessage("");
-            }}
-          >
-            {FEEDBACK_CATEGORIES.map(
-              (category) => (
-                <option
-                  key={category.value}
-                  value={category.value}
-                >
-                  {category.label}
-                </option>
-              )
-            )}
-          </select>
-        </label>
-
-        <label
-          className="feedback-field feedback-comment-field"
           htmlFor="feedback-comment"
         >
           <span>Feedback</span>

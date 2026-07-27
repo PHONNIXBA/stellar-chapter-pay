@@ -1608,7 +1608,7 @@ function App() {
           </article>
         </section>
 
-        <section className="lower-grid">
+        <section className="workspace-grid">
           <article className="panel">
             <div className="panel-header">
               <div>
@@ -1653,15 +1653,15 @@ function App() {
                 </strong>
               </div>
 
-              <div className="detail-row">
+              <div className="detail-row wallet-address-row">
                 <span>Address</span>
 
-                <strong>
-                  {walletAddress
-                    ? shortenMiddle(
-                        walletAddress
-                      )
-                    : "Not connected"}
+                <strong
+                  className="wallet-full-address"
+                  title={walletAddress}
+                >
+                  {walletAddress ||
+                    "Not connected"}
                 </strong>
               </div>
 
@@ -1710,67 +1710,7 @@ function App() {
             </div>
           </article>
 
-          <article className="panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-kicker">
-                  CONTRACT RUNTIME
-                </p>
-
-                <h2>
-                  Soroban configuration
-                </h2>
-              </div>
-
-              <span
-                className={
-                  contractsLoaded
-                    ? "panel-state state-ready"
-                    : "panel-state"
-                }
-              >
-                {contractsLoaded
-                  ? "Available"
-                  : "Unavailable"}
-              </span>
-            </div>
-
-            <div className="contract-list">
-              <div className="contract-item">
-                <p className="detail-label">
-                  Chapter Payment
-                </p>
-
-                <p className="contract-address">
-                  {chapterContractId
-                    ? shortenMiddle(
-                        chapterContractId,
-                        14,
-                        12
-                      )
-                    : "Not loaded"}
-                </p>
-              </div>
-
-              <div className="contract-item">
-                <p className="detail-label">
-                  Chapter Token
-                </p>
-
-                <p className="contract-address">
-                  {tokenContractId
-                    ? shortenMiddle(
-                        tokenContractId,
-                        14,
-                        12
-                      )
-                    : "Not loaded"}
-                </p>
-              </div>
-            </div>
-          </article>
-
-          <article className="panel activity-panel is-compact">
+<article className="panel activity-panel">
             <div className="panel-header">
               <div>
                 <p className="panel-kicker">
@@ -1794,7 +1734,7 @@ function App() {
                 actions will appear here.
               </p>
             ) : (
-              <div className="activity-list is-compact">
+              <div className="activity-list">
                 {activityEvents.map(
                   (activity) => (
                     <div

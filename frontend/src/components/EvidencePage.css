@@ -30,34 +30,7 @@
 .evidence-page-navigation {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.evidence-back-link {
-  display: inline-flex;
-  min-height: 40px;
-  align-items: center;
-  padding: 0 14px;
-  border:
-    1px solid
-    rgba(117, 186, 255, 0.22);
-  border-radius: 11px;
-  background:
-    rgba(75, 183, 255, 0.08);
-  color: #8bd5ff;
-  font-size: 12px;
-  font-weight: 750;
-  text-decoration: none;
-  transition:
-    transform 160ms ease,
-    background 160ms ease;
-}
-
-.evidence-back-link:hover {
-  transform: translateY(-1px);
-  background:
-    rgba(75, 183, 255, 0.14);
+  justify-content: flex-end;
 }
 
 .evidence-page-badge {
@@ -178,13 +151,6 @@
   }
 
   .evidence-page-footer {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-}
-
-@media (max-width: 520px) {
-  .evidence-page-navigation {
     align-items: flex-start;
     flex-direction: column;
   }
