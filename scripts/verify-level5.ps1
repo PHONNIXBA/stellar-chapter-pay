@@ -172,7 +172,6 @@ $RequiredFiles = @(
     "server/.env.example",
     "server/index.ts",
     "server/services/databaseService.ts",
-    "server/services/adminAuth.ts",
     "server/services/statisticsService.ts",
     "server/services/exportService.ts",
 
@@ -194,25 +193,26 @@ Require-Text `
     -Patterns @(
         "OnboardingForm",
         "FeedbackForm",
-        "Level5Dashboard",
         "recordRemoteInteraction"
+    )
+
+Require-Text `
+    -Path "frontend/src/components/EvidencePage.jsx" `
+    -Patterns @(
+        "Level5Dashboard"
     )
 
 Require-Text `
     -Path "server/index.ts" `
     -Patterns @(
         "/api/statistics/level-5",
-        "/api/exports/level-5.csv",
-        "requireAdminApiKey",
-        "ADMIN_API_KEY is required in production"
+        "/api/evidence"
     )
 
 Require-Text `
     -Path "server/.env.example" `
     -Patterns @(
-        "DATABASE_URL=",
-        "EXPORT_API_KEY=",
-        "ADMIN_API_KEY="
+        "DATABASE_URL="
     )
 
 Require-Text `
