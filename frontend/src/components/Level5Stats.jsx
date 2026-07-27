@@ -10,38 +10,76 @@ function Level5Stats({
   isLoading = false,
   error = "",
 }) {
-  const normalizedStats = normalizeLevel5Stats(stats);
+  const normalizedStats =
+    normalizeLevel5Stats(
+      stats
+    );
 
   const cards = [
     {
-      label: "Registered users",
-      value: normalizedStats.totalUsers,
-      caption: "Profiles linked to Stellar wallets",
+      label:
+        "Registered wallets",
+
+      value:
+        normalizedStats.totalUsers,
+
+      caption:
+        "Wallet-only identities",
     },
     {
-      label: "Active wallets",
-      value: normalizedStats.activeUsers,
-      caption: "Wallets with recorded activity",
+      label:
+        "Active wallets",
+
+      value:
+        normalizedStats.activeUsers,
+
+      caption:
+        "Wallets with verified activity",
     },
     {
-      label: "Interactions",
-      value: normalizedStats.totalInteractions,
-      caption: "Recorded product activities",
+      label:
+        "Interactions",
+
+      value:
+        normalizedStats
+          .totalInteractions,
+
+      caption:
+        "Recorded product actions",
     },
     {
-      label: "Successful transactions",
-      value: normalizedStats.successfulTransactions,
-      caption: "Confirmed Testnet actions",
+      label:
+        "Successful transactions",
+
+      value:
+        normalizedStats
+          .successfulTransactions,
+
+      caption:
+        "Confirmed Testnet actions",
     },
     {
-      label: "Feedback responses",
-      value: normalizedStats.feedbackCount,
-      caption: "Submitted product reviews",
+      label:
+        "Feedback responses",
+
+      value:
+        normalizedStats
+          .feedbackCount,
+
+      caption:
+        "Wallet-linked reviews",
     },
     {
-      label: "Average rating",
-      value: normalizedStats.averageRating.toFixed(1),
-      caption: "Rating out of 5",
+      label:
+        "Average rating",
+
+      value:
+        normalizedStats
+          .averageRating
+          .toFixed(1),
+
+      caption:
+        "Rating out of 5",
     },
   ];
 
@@ -61,24 +99,36 @@ function Level5Stats({
           </h2>
 
           <p className="level5-stats-description">
-            Live product usage, wallet activity and user feedback
-            recorded by the Chapter Pay backend.
+            Public wallet activity,
+            successful transactions and
+            wallet-linked product
+            feedback recorded by the
+            Chapter Pay backend.
           </p>
         </div>
 
         <span className="level5-stats-updated">
-          Updated: {formatLevel5UpdatedAt(normalizedStats.updatedAt)}
+          Updated:{" "}
+          {formatLevel5UpdatedAt(
+            normalizedStats.updatedAt
+          )}
         </span>
       </div>
 
       {isLoading && (
-        <p className="level5-stats-message" role="status">
+        <p
+          className="level5-stats-message"
+          role="status"
+        >
           Loading Level 5 statistics...
         </p>
       )}
 
       {!isLoading && error && (
-        <p className="level5-stats-message is-error" role="alert">
+        <p
+          className="level5-stats-message is-error"
+          role="alert"
+        >
           {error}
         </p>
       )}
@@ -86,10 +136,19 @@ function Level5Stats({
       {!isLoading && !error && (
         <div className="level5-stats-grid">
           {cards.map((card) => (
-            <article className="level5-stat-card" key={card.label}>
+            <article
+              className="level5-stat-card"
+              key={card.label}
+            >
               <p>{card.label}</p>
-              <strong>{card.value}</strong>
-              <span>{card.caption}</span>
+
+              <strong>
+                {card.value}
+              </strong>
+
+              <span>
+                {card.caption}
+              </span>
             </article>
           ))}
         </div>

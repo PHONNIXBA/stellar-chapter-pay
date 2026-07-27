@@ -1,5 +1,4 @@
 import {
-  afterAll,
   beforeEach,
   describe,
   expect,
@@ -13,9 +12,8 @@ import {
 } from "./dataService";
 
 import {
-  buildLevel5Csv,
-  buildLevel5ExportRows,
-  createLevel5ExportFilename,
+  buildPublicEvidence,
+  resolveEvidenceContractId,
 } from "./exportService";
 
 import {
@@ -23,269 +21,399 @@ import {
   registerUser,
 } from "./userService";
 
-const ORIGINAL_DATABASE_URL =
-  process.env.DATABASE_URL;
-
-const FIRST_WALLET =
+const WALLET_A =
   `G${"D".repeat(55)}`;
 
-const SECOND_WALLET =
+const WALLET_B =
   `G${"E".repeat(55)}`;
 
-beforeEach(() => {
-  delete process.env.DATABASE_URL;
+const PAYMENT_CONTRACT =
+  `C${"F".repeat(55)}`;
 
-  clearDataForTests();
-  clearUsersForTests();
-});
-
-afterAll(() => {
-  if (
-    ORIGINAL_DATABASE_URL ===
-    undefined
-  ) {
-    delete process.env.DATABASE_URL;
-    return;
-  }
-
-  process.env.DATABASE_URL =
-    ORIGINAL_DATABASE_URL;
-});
+const TOKEN_CONTRACT =
+  `C${"G".repeat(55)}`;
 
 describe(
-  "Level 5 export rows",
+  "public evidence export",
   () => {
+    beforeEach(() => {
+      delete process.env
+        .DATABASE_URL;
+
+      delete process.env
+        .POSTGRES_URL;
+
+      process.env
+        .STELLAR_NETWORK =
+        "TESTNET";
+
+      process.env
+        .CHAPTER_PAYMENT_CONTRACT_ID =
+        PAYMENT_CONTRACT;
+
+      process.env
+        .CHAPTER_TOKEN_CONTRACT_ID =
+        TOKEN_CONTRACT;
+
+      clearDataForTests();
+      clearUsersForTests();
+    });
+
     it(
-      "joins users with their latest activity and feedback",
+      "returns one row for each successful transaction",
       async () => {
-        const user =
-          await registerUser({
-            name: "Export User",
-
-            email:
-              "export@example.com",
-
-            walletAddress:
-              FIRST_WALLET,
-          });
-
-        await createInteraction({
+        await registerUser({
           walletAddress:
-            FIRST_WALLET,
-
-          action:
-            "transaction_pending",
-
-          status: "pending",
-
-          contractFunction:
-            "unlock_with_payment",
+            WALLET_A,
         });
 
         await createInteraction({
           walletAddress:
-            FIRST_WALLET,
+            WALLET_A,
+
+          action:
+            "demo_coins_claimed",
+
+          contractId:
+            TOKEN_CONTRACT,
+
+          contractFunction:
+            "faucet",
+
+          status:
+            "success",
+
+          txHash:
+            "token-hash-a",
+
+          network:
+            "TESTNET",
+        });
+
+        await createInteraction({
+          walletAddress:
+            WALLET_A,
 
           action:
             "chapters_unlocked",
 
-          status: "success",
-
-          txHash:
-            "level-5-testnet-hash",
+          contractId:
+            PAYMENT_CONTRACT,
 
           contractFunction:
             "unlock_with_payment",
 
-          network: "TESTNET",
+          status:
+            "success",
+
+          txHash:
+            "payment-hash-a",
+
+          network:
+            "TESTNET",
+
+          metadata: {
+            quantity: 3,
+            totalPrice: 15,
+          },
         });
 
         await createFeedback({
           walletAddress:
-            FIRST_WALLET,
+            WALLET_A,
 
           rating: 5,
 
           comment:
-            "The payment flow was clear.",
-
-          improvementCategory:
-            "onboarding",
+            "The chapter payment flow worked.",
         });
 
-        const rows =
-          await buildLevel5ExportRows();
-
-        expect(rows).toHaveLength(1);
+        const evidence =
+          await buildPublicEvidence();
 
         expect(
-          rows[0].userId
-        ).toBe(user.id);
+          evidence.records
+        ).toHaveLength(2);
 
-        expect(
-          rows[0].mainAction
-        ).toBe(
-          "chapters_unlocked"
-        );
-
-        expect(
-          rows[0].transactionHash
-        ).toBe(
-          "level-5-testnet-hash"
-        );
-
-        expect(
-          rows[0].transactionStatus
-        ).toBe("success");
-
-        expect(
-          rows[0].rating
-        ).toBe(5);
-
-        expect(
-          rows[0]
-            .improvementCategory
-        ).toBe("onboarding");
-      }
-    );
-
-    it(
-      "includes registered users without transaction activity",
-      async () => {
-        await registerUser({
-          name: "New User",
-
-          email:
-            "new@example.com",
-
-          walletAddress:
-            SECOND_WALLET,
-        });
-
-        const rows =
-          await buildLevel5ExportRows();
-
-        expect(rows).toHaveLength(1);
-
-        expect(
-          rows[0].mainAction
-        ).toBe("");
-
-        expect(
-          rows[0].transactionHash
-        ).toBe("");
-
-        expect(
-          rows[0].onboardingStatus
-        ).toBe("registered");
-      }
-    );
-  }
-);
-
-describe(
-  "Excel-compatible CSV",
-  () => {
-    it(
-      "adds a UTF-8 BOM and the required Level 5 headers",
-      () => {
-        const csv =
-          buildLevel5Csv([]);
-
-        expect(
-          csv.charCodeAt(0)
-        ).toBe(0xfeff);
-
-        expect(csv).toContain(
-          "User ID,Name,Email,Wallet"
-        );
-
-        expect(csv).toContain(
-          "Transaction Hash"
-        );
-
-        expect(csv).toContain(
-          "Improvement Category"
-        );
-      }
-    );
-
-    it(
-      "escapes commas, quotes, and spreadsheet formulas",
-      () => {
-        const csv =
-          buildLevel5Csv([
-            {
-              userId: "user-1",
-              name: "=SUM(1,1)",
-              email:
-                "formula@example.com",
-
-              walletAddress:
-                FIRST_WALLET,
-
-              joinedAt:
-                "2026-07-26T00:00:00.000Z",
-
-              onboardingStatus:
-                "active",
-
-              onboardingCompleted:
-                true,
-
-              mainAction:
-                "chapters_unlocked",
-
-              contractFunction:
-                "unlock_with_payment",
-
-              transactionHash:
-                "test-hash",
-
-              transactionStatus:
-                "success",
-
-              network: "TESTNET",
-
-              interactionDate:
-                "2026-07-26T00:01:00.000Z",
-
-              lastActiveAt:
-                "2026-07-26T00:01:00.000Z",
-
-              rating: 4,
-
-              feedback:
-                'Clear, but "slow".',
-
-              improvementCategory:
-                "performance",
-            },
-          ]);
-
-        expect(csv).toContain(
-          `"'=SUM(1,1)"`
-        );
-
-        expect(csv).toContain(
-          `"Clear, but ""slow""."`
-        );
-      }
-    );
-
-    it(
-      "creates a dated CSV filename",
-      () => {
-        const filename =
-          createLevel5ExportFilename(
-            new Date(
-              "2026-07-26T10:00:00.000Z"
-            )
+        const tokenRecord =
+          evidence.records.find(
+            (record) =>
+              record.contractId ===
+              TOKEN_CONTRACT
           );
 
-        expect(filename).toBe(
-          "stellar-chapter-pay-level-5-2026-07-26.csv"
+        const paymentRecord =
+          evidence.records.find(
+            (record) =>
+              record.contractId ===
+              PAYMENT_CONTRACT
+          );
+
+        expect(
+          tokenRecord
+        ).toMatchObject({
+          walletAddress:
+            WALLET_A,
+
+          action:
+            "demo_coins_claimed",
+
+          contractFunction:
+            "faucet",
+
+          transactionHash:
+            "token-hash-a",
+
+          chaptersUnlocked: 0,
+          amount: 0,
+
+          verification:
+            "Verified",
+        });
+
+        expect(
+          paymentRecord
+        ).toMatchObject({
+          walletAddress:
+            WALLET_A,
+
+          action:
+            "chapters_unlocked",
+
+          contractFunction:
+            "unlock_with_payment",
+
+          transactionHash:
+            "payment-hash-a",
+
+          chaptersUnlocked: 3,
+          amount: 15,
+          rating: 5,
+
+          verification:
+            "Verified",
+        });
+
+        expect(
+          evidence.summary
+        ).toEqual({
+          totalWallets: 1,
+          verifiedWallets: 1,
+          verifiedTransactions: 2,
+          totalChapters: 3,
+          totalAmount: 15,
+          averageRating: 5,
+        });
+      }
+    );
+
+    it(
+      "keeps contract and hash empty for a wallet without a transaction",
+      async () => {
+        await registerUser({
+          walletAddress:
+            WALLET_B,
+        });
+
+        const evidence =
+          await buildPublicEvidence();
+
+        expect(
+          evidence.records
+        ).toHaveLength(1);
+
+        expect(
+          evidence.records[0]
+        ).toMatchObject({
+          walletAddress:
+            WALLET_B,
+
+          action: "",
+          contractId: "",
+          contractFunction: "",
+          transactionHash: "",
+
+          chaptersUnlocked: 0,
+          amount: 0,
+
+          verification:
+            "Pending",
+        });
+
+        expect(
+          evidence.summary
+        ).toMatchObject({
+          totalWallets: 1,
+          verifiedWallets: 0,
+          verifiedTransactions: 0,
+        });
+      }
+    );
+
+    it(
+      "supports different chapter quantities on the same payment contract",
+      async () => {
+        await createInteraction({
+          walletAddress:
+            WALLET_A,
+
+          action:
+            "chapters_unlocked",
+
+          contractId:
+            PAYMENT_CONTRACT,
+
+          contractFunction:
+            "unlock_with_payment",
+
+          status:
+            "success",
+
+          txHash:
+            "wallet-a-payment",
+
+          network:
+            "TESTNET",
+
+          metadata: {
+            quantity: 1,
+            totalPrice: 5,
+          },
+        });
+
+        await createInteraction({
+          walletAddress:
+            WALLET_B,
+
+          action:
+            "chapters_unlocked",
+
+          contractId:
+            PAYMENT_CONTRACT,
+
+          contractFunction:
+            "unlock_with_payment",
+
+          status:
+            "success",
+
+          txHash:
+            "wallet-b-payment",
+
+          network:
+            "TESTNET",
+
+          metadata: {
+            quantity: 4,
+            totalPrice: 20,
+          },
+        });
+
+        const evidence =
+          await buildPublicEvidence();
+
+        expect(
+          evidence.records
+        ).toHaveLength(2);
+
+        expect(
+          new Set(
+            evidence.records.map(
+              (record) =>
+                record.contractId
+            )
+          )
+        ).toEqual(
+          new Set([
+            PAYMENT_CONTRACT,
+          ])
         );
+
+        expect(
+          evidence.records.find(
+            (record) =>
+              record.walletAddress ===
+              WALLET_A
+          )
+        ).toMatchObject({
+          action:
+            "chapters_unlocked",
+
+          contractFunction:
+            "unlock_with_payment",
+
+          chaptersUnlocked: 1,
+          amount: 5,
+
+          transactionHash:
+            "wallet-a-payment",
+        });
+
+        expect(
+          evidence.records.find(
+            (record) =>
+              record.walletAddress ===
+              WALLET_B
+          )
+        ).toMatchObject({
+          action:
+            "chapters_unlocked",
+
+          contractFunction:
+            "unlock_with_payment",
+
+          chaptersUnlocked: 4,
+          amount: 20,
+
+          transactionHash:
+            "wallet-b-payment",
+        });
+
+        expect(
+          evidence.summary
+        ).toMatchObject({
+          totalWallets: 2,
+          verifiedWallets: 2,
+          verifiedTransactions: 2,
+          totalChapters: 5,
+          totalAmount: 25,
+        });
+      }
+    );
+
+    it(
+      "infers only known legacy contract actions",
+      () => {
+        expect(
+          resolveEvidenceContractId({
+            action:
+              "demo_coins_claimed",
+
+            contractFunction:
+              "faucet",
+          })
+        ).toBe(
+          TOKEN_CONTRACT
+        );
+
+        expect(
+          resolveEvidenceContractId({
+            action:
+              "chapters_unlocked",
+
+            contractFunction:
+              "unlock_with_payment",
+          })
+        ).toBe(
+          PAYMENT_CONTRACT
+        );
+
+        expect(
+          resolveEvidenceContractId({
+            action:
+              "wallet_connected",
+          })
+        ).toBe("");
       }
     );
   }

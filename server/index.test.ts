@@ -8,7 +8,9 @@ import {
   it,
 } from "vitest";
 
-import { app } from "./index";
+import {
+  app,
+} from "./index";
 
 import {
   clearDataForTests,
@@ -21,71 +23,93 @@ import {
 const ORIGINAL_DATABASE_URL =
   process.env.DATABASE_URL;
 
-const ORIGINAL_EXPORT_API_KEY =
-  process.env.EXPORT_API_KEY;
-
 const ORIGINAL_ADMIN_API_KEY =
   process.env.ADMIN_API_KEY;
 
-const TEST_ADMIN_API_KEY =
-  "test-admin-api-key";
+const ORIGINAL_EXPORT_API_KEY =
+  process.env.EXPORT_API_KEY;
+
+const ORIGINAL_PAYMENT_CONTRACT =
+  process.env
+    .CHAPTER_PAYMENT_CONTRACT_ID;
+
+const ORIGINAL_TOKEN_CONTRACT =
+  process.env
+    .CHAPTER_TOKEN_CONTRACT_ID;
 
 const FIRST_WALLET =
   `G${"A".repeat(55)}`;
 
+const SECOND_WALLET =
+  `G${"B".repeat(55)}`;
+
+const PAYMENT_CONTRACT =
+  `C${"F".repeat(55)}`;
+
+const TOKEN_CONTRACT =
+  `C${"G".repeat(55)}`;
+
+function restoreEnvironmentVariable(
+  name: string,
+  value: string | undefined
+): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
+}
+
 beforeEach(() => {
   delete process.env.DATABASE_URL;
+  delete process.env.ADMIN_API_KEY;
+  delete process.env.EXPORT_API_KEY;
 
-  process.env.EXPORT_API_KEY =
-    "test-export-api-key";
+  process.env
+    .CHAPTER_PAYMENT_CONTRACT_ID =
+    PAYMENT_CONTRACT;
 
-  process.env.ADMIN_API_KEY =
-    TEST_ADMIN_API_KEY;
+  process.env
+    .CHAPTER_TOKEN_CONTRACT_ID =
+    TOKEN_CONTRACT;
 
   clearDataForTests();
   clearUsersForTests();
 });
 
 afterAll(() => {
-  if (
-    ORIGINAL_DATABASE_URL ===
-    undefined
-  ) {
-    delete process.env.DATABASE_URL;
-  }
-  else {
-    process.env.DATABASE_URL =
-      ORIGINAL_DATABASE_URL;
-  }
+  restoreEnvironmentVariable(
+    "DATABASE_URL",
+    ORIGINAL_DATABASE_URL
+  );
 
-  if (
-    ORIGINAL_EXPORT_API_KEY ===
-    undefined
-  ) {
-    delete process.env.EXPORT_API_KEY;
-  }
-  else {
-    process.env.EXPORT_API_KEY =
-      ORIGINAL_EXPORT_API_KEY;
-  }
+  restoreEnvironmentVariable(
+    "ADMIN_API_KEY",
+    ORIGINAL_ADMIN_API_KEY
+  );
 
-  if (
-    ORIGINAL_ADMIN_API_KEY ===
-    undefined
-  ) {
-    delete process.env.ADMIN_API_KEY;
-  }
-  else {
-    process.env.ADMIN_API_KEY =
-      ORIGINAL_ADMIN_API_KEY;
-  }
+  restoreEnvironmentVariable(
+    "EXPORT_API_KEY",
+    ORIGINAL_EXPORT_API_KEY
+  );
+
+  restoreEnvironmentVariable(
+    "CHAPTER_PAYMENT_CONTRACT_ID",
+    ORIGINAL_PAYMENT_CONTRACT
+  );
+
+  restoreEnvironmentVariable(
+    "CHAPTER_TOKEN_CONTRACT_ID",
+    ORIGINAL_TOKEN_CONTRACT
+  );
 });
 
 describe(
   "health and configuration endpoints",
   () => {
     it(
-      "returns backend health information",
+      "returns wallet-only backend health information",
       async () => {
         const response =
           await request(app)
@@ -107,14 +131,21 @@ describe(
         ).toBe("memory");
 
         expect(
-          typeof response.body
-            .timestamp
+          response.body.privacyModel
+        ).toBe("wallet-only");
+
+        expect(
+          response.body.publicEvidence
+        ).toBe("/api/evidence");
+
+        expect(
+          typeof response.body.timestamp
         ).toBe("string");
       }
     );
 
     it(
-      "returns Stellar runtime configuration",
+      "returns Stellar Testnet configuration",
       async () => {
         const response =
           await request(app)
@@ -126,8 +157,14 @@ describe(
         ).toBe("TESTNET");
 
         expect(
-          response.body.rpcUrl
-        ).toContain("stellar.org");
+          response.body
+            .chapterPaymentContractId
+        ).toBe(PAYMENT_CONTRACT);
+
+        expect(
+          response.body
+            .chapterTokenContractId
+        ).toBe(TOKEN_CONTRACT);
 
         expect(
           response.body.explorerUrl
@@ -148,12 +185,6 @@ describe(
         expect(
           response.body.count
         ).toBeGreaterThan(10);
-
-        expect(
-          Array.isArray(
-            response.body.functions
-          )
-        ).toBe(true);
 
         expect(
           response.body.functions.some(
@@ -182,36 +213,20 @@ describe(
     );
   }
 );
-
 describe(
-  "user onboarding endpoints",
+  "wallet-only onboarding endpoints",
   () => {
     it(
-      "registers a user and maps the profile to a wallet",
+      "registers a user using only a wallet address",
       async () => {
         const response =
           await request(app)
             .post("/api/users")
             .send({
-              name: "Test User",
-
-              email:
-                "TEST.USER@EXAMPLE.COM",
-
               walletAddress:
                 FIRST_WALLET,
             })
             .expect(201);
-
-        expect(
-          response.body.user.name
-        ).toBe("Test User");
-
-        expect(
-          response.body.user.email
-        ).toBe(
-          "test.user@example.com"
-        );
 
         expect(
           response.body.user
@@ -221,21 +236,35 @@ describe(
         expect(
           response.body.user
             .onboardingStatus
-        ).toBe("registered");
+        ).toBe(
+          "wallet_connected"
+        );
+
+        expect(
+          response.body.user
+            .onboardingCompleted
+        ).toBe(true);
+
+        expect(
+          response.body.user
+        ).not.toHaveProperty("name");
+
+        expect(
+          response.body.user
+        ).not.toHaveProperty("email");
+
+        expect(
+          response.body.user
+        ).not.toHaveProperty("id");
       }
     );
 
     it(
-      "returns a registered user by wallet",
+      "returns a wallet-only user profile",
       async () => {
         await request(app)
           .post("/api/users")
           .send({
-            name: "Wallet User",
-
-            email:
-              "wallet@example.com",
-
             walletAddress:
               FIRST_WALLET,
           })
@@ -249,60 +278,31 @@ describe(
             .expect(200);
 
         expect(
-          response.body.user.email
-        ).toBe(
-          "wallet@example.com"
-        );
+          response.body.user
+            .walletAddress
+        ).toBe(FIRST_WALLET);
+
+        expect(
+          response.body.user
+        ).not.toHaveProperty("name");
+
+        expect(
+          response.body.user
+        ).not.toHaveProperty("email");
+
+        expect(
+          response.body.user
+        ).not.toHaveProperty("createdAt");
       }
     );
 
     it(
-      "lists registered users",
-      async () => {
-        await request(app)
-          .post("/api/users")
-          .send({
-            name: "List User",
-
-            email:
-              "list@example.com",
-
-            walletAddress:
-              FIRST_WALLET,
-          })
-          .expect(201);
-
-        const response =
-          await request(app)
-            .get("/api/users")
-            .set(
-              "x-admin-api-key",
-              TEST_ADMIN_API_KEY
-            )
-            .expect(200);
-
-        expect(
-          response.body.count
-        ).toBe(1);
-
-        expect(
-          response.body.users
-        ).toHaveLength(1);
-      }
-    );
-
-    it(
-      "rejects an invalid wallet during registration",
+      "rejects an invalid wallet address",
       async () => {
         const response =
           await request(app)
             .post("/api/users")
             .send({
-              name: "Invalid User",
-
-              email:
-                "invalid@example.com",
-
               walletAddress:
                 "INVALID_WALLET",
             })
@@ -317,12 +317,12 @@ describe(
     );
 
     it(
-      "returns 404 for an unregistered wallet",
+      "returns 404 for an unknown valid wallet",
       async () => {
         const response =
           await request(app)
             .get(
-              `/api/users/${FIRST_WALLET}`
+              `/api/users/${SECOND_WALLET}`
             )
             .expect(404);
 
@@ -333,14 +333,28 @@ describe(
         );
       }
     );
+
+    it(
+      "redirects the old user list to public evidence",
+      async () => {
+        const response =
+          await request(app)
+            .get("/api/users")
+            .expect(308);
+
+        expect(
+          response.headers.location
+        ).toBe("/api/evidence");
+      }
+    );
   }
 );
 
 describe(
-  "interaction endpoints",
+  "wallet interaction endpoints",
   () => {
     it(
-      "records a valid wallet interaction",
+      "stores transaction evidence with a contract ID",
       async () => {
         const response =
           await request(app)
@@ -354,15 +368,20 @@ describe(
               action:
                 "chapters_unlocked",
 
+              contractId:
+                PAYMENT_CONTRACT,
+
               contractFunction:
                 "unlock_with_payment",
 
-              status: "success",
+              status:
+                "success",
 
               txHash:
-                "test-transaction-hash",
+                "testnet-transaction-hash",
 
-              network: "TESTNET",
+              network:
+                "TESTNET",
 
               metadata: {
                 quantity: 3,
@@ -378,57 +397,56 @@ describe(
 
         expect(
           response.body.interaction
-            .status
-        ).toBe("success");
+            .contractId
+        ).toBe(PAYMENT_CONTRACT);
 
         expect(
           response.body.interaction
             .txHash
         ).toBe(
-          "test-transaction-hash"
+          "testnet-transaction-hash"
+        );
+
+        expect(
+          response.body.interaction
+            .status
+        ).toBe("success");
+      }
+    );
+
+    it(
+      "rejects an invalid contract ID",
+      async () => {
+        const response =
+          await request(app)
+            .post(
+              "/api/interactions"
+            )
+            .send({
+              walletAddress:
+                FIRST_WALLET,
+
+              action:
+                "chapters_unlocked",
+
+              contractId:
+                "INVALID_CONTRACT",
+
+              status:
+                "success",
+            })
+            .expect(400);
+
+        expect(
+          response.body.error
+        ).toContain(
+          "valid Stellar contract ID"
         );
       }
     );
 
     it(
-      "returns recorded interactions",
-      async () => {
-        await request(app)
-          .post("/api/interactions")
-          .send({
-            walletAddress:
-              FIRST_WALLET,
-
-            action:
-              "wallet_connected",
-
-            status: "success",
-          })
-          .expect(201);
-
-        const response =
-          await request(app)
-            .get(
-              "/api/interactions"
-            )
-            .set(
-              "x-admin-api-key",
-              TEST_ADMIN_API_KEY
-            )
-            .expect(200);
-
-        expect(
-          response.body.count
-        ).toBe(1);
-
-        expect(
-          response.body.interactions
-        ).toHaveLength(1);
-      }
-    );
-
-    it(
-      "rejects an invalid interaction",
+      "rejects interaction data without a wallet",
       async () => {
         const response =
           await request(app)
@@ -439,14 +457,15 @@ describe(
               action:
                 "chapters_unlocked",
 
-              status: "unknown",
+              status:
+                "success",
             })
             .expect(400);
 
         expect(
           response.body.error
         ).toContain(
-          "walletAddress"
+          "valid Stellar wallet"
         );
       }
     );
@@ -454,10 +473,10 @@ describe(
 );
 
 describe(
-  "feedback and analytics endpoints",
+  "wallet feedback endpoints",
   () => {
     it(
-      "records valid user feedback",
+      "stores feedback linked only to a wallet",
       async () => {
         const response =
           await request(app)
@@ -469,7 +488,7 @@ describe(
               rating: 5,
 
               comment:
-                "The bulk chapter payment flow was clear.",
+                "The payment flow was clear.",
 
               improvementCategory:
                 "onboarding",
@@ -478,26 +497,67 @@ describe(
 
         expect(
           response.body.feedback
+            .walletAddress
+        ).toBe(FIRST_WALLET);
+
+        expect(
+          response.body.feedback
             .rating
         ).toBe(5);
 
         expect(
           response.body.feedback
-            .improvementCategory
-        ).toBe("onboarding");
+            .comment
+        ).toBe(
+          "The payment flow was clear."
+        );
+
+        expect(
+          response.body.feedback
+        ).not.toHaveProperty("name");
+
+        expect(
+          response.body.feedback
+        ).not.toHaveProperty("email");
       }
     );
 
     it(
-      "rejects a rating outside the supported range",
+      "requires a wallet for feedback",
       async () => {
         const response =
           await request(app)
             .post("/api/feedback")
             .send({
-              rating: 8,
+              rating: 5,
+
               comment:
-                "Invalid rating",
+                "Missing wallet.",
+            })
+            .expect(400);
+
+        expect(
+          response.body.error
+        ).toContain(
+          "valid Stellar wallet"
+        );
+      }
+    );
+
+    it(
+      "rejects an invalid feedback rating",
+      async () => {
+        const response =
+          await request(app)
+            .post("/api/feedback")
+            .send({
+              walletAddress:
+                FIRST_WALLET,
+
+              rating: 8,
+
+              comment:
+                "Invalid rating.",
             })
             .expect(400);
 
@@ -506,60 +566,17 @@ describe(
         ).toContain("rating");
       }
     );
-
+  }
+);
+describe(
+  "public evidence endpoints",
+  () => {
     it(
-      "returns an analytics summary",
-      async () => {
-        await request(app)
-          .post("/api/interactions")
-          .send({
-            walletAddress:
-              FIRST_WALLET,
-
-            action:
-              "chapters_unlocked",
-
-            status: "success",
-
-            txHash:
-              "analytics-test-hash",
-          })
-          .expect(201);
-
-        const response =
-          await request(app)
-            .get("/api/analytics")
-            .expect(200);
-
-        expect(
-          response.body
-            .totalInteractions
-        ).toBe(1);
-
-        expect(
-          response.body
-            .successfulTransactions
-        ).toBe(1);
-
-        expect(
-          response.body
-            .verifiedActiveWallets
-        ).toBe(1);
-      }
-    );
-
-    it(
-      "returns Level 5 product statistics",
+      "returns one public evidence table without API keys",
       async () => {
         await request(app)
           .post("/api/users")
           .send({
-            name:
-              "Statistics User",
-
-            email:
-              "statistics@example.com",
-
             walletAddress:
               FIRST_WALLET,
           })
@@ -573,6 +590,9 @@ describe(
 
             action:
               "chapters_unlocked",
+
+            contractId:
+              PAYMENT_CONTRACT,
 
             contractFunction:
               "unlock_with_payment",
@@ -581,7 +601,15 @@ describe(
               "success",
 
             txHash:
-              "statistics-testnet-hash",
+              "public-evidence-hash",
+
+            network:
+              "TESTNET",
+
+            metadata: {
+              quantity: 4,
+              totalPrice: 20,
+            },
           })
           .expect(201);
 
@@ -594,10 +622,178 @@ describe(
             rating: 5,
 
             comment:
-              "The Level 5 dashboard was clear.",
+              "Simple and easy to use.",
+          })
+          .expect(201);
 
-            improvementCategory:
-              "ui-ux",
+        const response =
+          await request(app)
+            .get("/api/evidence")
+            .expect(200);
+
+        expect(
+          response.body.count
+        ).toBe(1);
+
+        expect(
+          response.body.records
+        ).toHaveLength(1);
+
+        const record =
+          response.body.records[0];
+
+        expect(
+          record.walletAddress
+        ).toBe(FIRST_WALLET);
+
+        expect(
+          record.contractId
+        ).toBe(PAYMENT_CONTRACT);
+
+        expect(
+          record.transactionHash
+        ).toBe(
+          "public-evidence-hash"
+        );
+
+        expect(
+          record.chaptersUnlocked
+        ).toBe(4);
+
+        expect(record.amount).toBe(20);
+        expect(record.rating).toBe(5);
+
+        expect(record.feedback).toBe(
+          "Simple and easy to use."
+        );
+
+        expect(
+          record.verification
+        ).toBe("Verified");
+
+        expect(record.network).toBe(
+          "TESTNET"
+        );
+
+        expect(record).not.toHaveProperty(
+          "name"
+        );
+
+        expect(record).not.toHaveProperty(
+          "email"
+        );
+
+        expect(record).not.toHaveProperty(
+          "createdAt"
+        );
+
+        expect(
+          response.body.summary
+            .totalWallets
+        ).toBe(1);
+
+        expect(
+          response.body.summary
+            .verifiedWallets
+        ).toBe(1);
+
+        expect(
+          response.body.summary
+            .verifiedTransactions
+        ).toBe(1);
+
+        expect(
+          response.body.summary
+            .totalChapters
+        ).toBe(4);
+
+        expect(
+          response.body.summary
+            .averageRating
+        ).toBe(5);
+
+        expect(
+          response.headers[
+            "cache-control"
+          ]
+        ).toContain("public");
+      }
+    );
+
+    it(
+      "shows a wallet without a transaction as pending",
+      async () => {
+        await request(app)
+          .post("/api/users")
+          .send({
+            walletAddress:
+              SECOND_WALLET,
+          })
+          .expect(201);
+
+        const response =
+          await request(app)
+            .get("/api/evidence")
+            .expect(200);
+
+        expect(
+          response.body.records[0]
+            .walletAddress
+        ).toBe(SECOND_WALLET);
+
+        expect(
+          response.body.records[0]
+            .verification
+        ).toBe("Pending");
+
+        expect(
+          response.body.records[0]
+            .transactionHash
+        ).toBe("");
+      }
+    );
+  }
+);
+
+describe(
+  "analytics and product readiness endpoints",
+  () => {
+    it(
+      "returns wallet-only Level 5 statistics",
+      async () => {
+        await request(app)
+          .post("/api/interactions")
+          .send({
+            walletAddress:
+              FIRST_WALLET,
+
+            action:
+              "chapters_unlocked",
+
+            contractId:
+              PAYMENT_CONTRACT,
+
+            contractFunction:
+              "unlock_with_payment",
+
+            status:
+              "success",
+
+            txHash:
+              "statistics-hash",
+          })
+          .expect(201);
+
+        await request(app)
+          .post("/api/feedback")
+          .send({
+            walletAddress:
+              FIRST_WALLET,
+
+            rating: 5,
+
+            comment:
+              "Statistics feedback",
           })
           .expect(201);
 
@@ -620,11 +816,6 @@ describe(
 
         expect(
           response.body.stats
-            .totalInteractions
-        ).toBe(1);
-
-        expect(
-          response.body.stats
             .successfulTransactions
         ).toBe(1);
 
@@ -637,11 +828,26 @@ describe(
           response.body.stats
             .averageRating
         ).toBe(5);
+      }
+    );
+
+    it(
+      "returns analytics without an admin key",
+      async () => {
+        const response =
+          await request(app)
+            .get("/api/analytics")
+            .expect(200);
 
         expect(
-          typeof response.body.stats
-            .updatedAt
-        ).toBe("string");
+          response.body
+            .totalInteractions
+        ).toBe(0);
+
+        expect(
+          response.body
+            .totalFeedback
+        ).toBe(0);
       }
     );
 
@@ -665,253 +871,6 @@ describe(
           response.body.checks
             .backendService
         ).toBe(true);
-
-        expect(
-          response.body.checks
-            .frontendIntegration
-        ).toBe(true);
-      }
-    );
-  }
-);
-
-describe(
-  "protected admin endpoints",
-  () => {
-    it(
-      "rejects requests without an admin key",
-      async () => {
-        const response =
-          await request(app)
-            .get("/api/users")
-            .expect(401);
-
-        expect(
-          response.body.error
-        ).toContain(
-          "valid admin API key"
-        );
-      }
-    );
-
-    it(
-      "rejects requests with an invalid admin key",
-      async () => {
-        const response =
-          await request(app)
-            .get(
-              "/api/interactions"
-            )
-            .set(
-              "x-admin-api-key",
-              "wrong-admin-key"
-            )
-            .expect(401);
-
-        expect(
-          response.body.error
-        ).toContain(
-          "valid admin API key"
-        );
-      }
-    );
-
-    it(
-      "reports when admin access is not configured",
-      async () => {
-        delete process.env
-          .ADMIN_API_KEY;
-
-        const response =
-          await request(app)
-            .get("/api/feedback")
-            .set(
-              "x-admin-api-key",
-              TEST_ADMIN_API_KEY
-            )
-            .expect(503);
-
-        expect(
-          response.body.error
-        ).toContain(
-          "not configured"
-        );
-      }
-    );
-
-    it(
-      "allows access with a valid admin key",
-      async () => {
-        const response =
-          await request(app)
-            .get("/api/feedback")
-            .set(
-              "x-admin-api-key",
-              TEST_ADMIN_API_KEY
-            )
-            .expect(200);
-
-        expect(
-          response.body.count
-        ).toBe(0);
-
-        expect(
-          response.body.feedback
-        ).toEqual([]);
-      }
-    );
-  }
-);
-
-describe(
-  "protected Level 5 export endpoint",
-  () => {
-    it(
-      "rejects a request with an invalid export key",
-      async () => {
-        const response =
-          await request(app)
-            .get(
-              "/api/exports/level-5.csv"
-            )
-            .set(
-              "x-export-api-key",
-              "wrong-key"
-            )
-            .expect(401);
-
-        expect(
-          response.body.error
-        ).toContain(
-          "valid export API key"
-        );
-      }
-    );
-
-    it(
-      "reports when the export service is not configured",
-      async () => {
-        delete process.env
-          .EXPORT_API_KEY;
-
-        const response =
-          await request(app)
-            .get(
-              "/api/exports/level-5.csv"
-            )
-            .set(
-              "x-export-api-key",
-              "test-export-api-key"
-            )
-            .expect(503);
-
-        expect(
-          response.body.error
-        ).toContain(
-          "not configured"
-        );
-      }
-    );
-
-    it(
-      "downloads an Excel-compatible CSV with the correct key",
-      async () => {
-        await request(app)
-          .post("/api/users")
-          .send({
-            name: "Export User",
-
-            email:
-              "export@example.com",
-
-            walletAddress:
-              FIRST_WALLET,
-          })
-          .expect(201);
-
-        await request(app)
-          .post("/api/interactions")
-          .send({
-            walletAddress:
-              FIRST_WALLET,
-
-            action:
-              "chapters_unlocked",
-
-            contractFunction:
-              "unlock_with_payment",
-
-            status: "success",
-
-            txHash:
-              "export-testnet-hash",
-          })
-          .expect(201);
-
-        await request(app)
-          .post("/api/feedback")
-          .send({
-            walletAddress:
-              FIRST_WALLET,
-
-            rating: 5,
-
-            comment:
-              "Export feedback",
-
-            improvementCategory:
-              "onboarding",
-          })
-          .expect(201);
-
-        const response =
-          await request(app)
-            .get(
-              "/api/exports/level-5.csv"
-            )
-            .set(
-              "x-export-api-key",
-              "test-export-api-key"
-            )
-            .expect(200);
-
-        expect(
-          response.headers[
-            "content-type"
-          ]
-        ).toContain(
-          "text/csv"
-        );
-
-        expect(
-          response.headers[
-            "content-disposition"
-          ]
-        ).toMatch(
-          /stellar-chapter-pay-level-5-\d{4}-\d{2}-\d{2}\.csv/
-        );
-
-        expect(
-          response.headers[
-            "cache-control"
-          ]
-        ).toContain("no-store");
-
-        expect(response.text).toContain(
-          "User ID,Name,Email,Wallet"
-        );
-
-        expect(response.text).toContain(
-          "export@example.com"
-        );
-
-        expect(response.text).toContain(
-          "export-testnet-hash"
-        );
-
-        expect(response.text).toContain(
-          "Export feedback"
-        );
       }
     );
   }

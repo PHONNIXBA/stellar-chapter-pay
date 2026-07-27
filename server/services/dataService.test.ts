@@ -18,7 +18,6 @@ import {
 import {
   clearUsersForTests,
   getUserByWallet,
-  registerUser,
 } from "./userService";
 
 const ORIGINAL_DATABASE_URL =
@@ -26,6 +25,9 @@ const ORIGINAL_DATABASE_URL =
 
 const TEST_WALLET =
   `G${"C".repeat(55)}`;
+
+const TEST_CONTRACT =
+  `C${"F".repeat(55)}`;
 
 beforeEach(() => {
   delete process.env.DATABASE_URL;
@@ -50,17 +52,8 @@ describe(
   "wallet interaction storage",
   () => {
     it(
-      "links a successful transaction to a registered user",
+      "automatically registers the wallet and stores contract evidence",
       async () => {
-        const user =
-          await registerUser({
-            name: "Activity User",
-            email:
-              "activity@example.com",
-            walletAddress:
-              TEST_WALLET,
-          });
-
         const interaction =
           await createInteraction({
             walletAddress:
@@ -68,6 +61,9 @@ describe(
 
             action:
               "chapters_unlocked",
+
+            contractId:
+              TEST_CONTRACT,
 
             contractFunction:
               "unlock_with_payment",
@@ -85,32 +81,35 @@ describe(
 
         expect(
           interaction.userId
-        ).toBe(user.id);
+        ).not.toBeNull();
+
+        expect(
+          interaction.contractId
+        ).toBe(TEST_CONTRACT);
 
         expect(
           interaction.network
         ).toBe("TESTNET");
 
         expect(
-          interaction
-            .contractFunction
+          interaction.contractFunction
         ).toBe(
           "unlock_with_payment"
         );
 
-        const updatedUser =
+        const user =
           await getUserByWallet(
             TEST_WALLET
           );
 
+        expect(user).not.toBeNull();
+
         expect(
-          updatedUser
-            ?.onboardingStatus
+          user?.onboardingStatus
         ).toBe("active");
 
         expect(
-          updatedUser
-            ?.onboardingCompleted
+          user?.onboardingCompleted
         ).toBe(true);
       }
     );
@@ -140,24 +139,37 @@ describe(
         );
       }
     );
+
+    it(
+      "rejects an invalid contract ID",
+      async () => {
+        await expect(
+          createInteraction({
+            walletAddress:
+              TEST_WALLET,
+
+            action:
+              "chapters_unlocked",
+
+            contractId:
+              "INVALID_CONTRACT",
+
+            status: "success",
+          })
+        ).rejects.toThrow(
+          "valid Stellar contract ID"
+        );
+      }
+    );
   }
 );
 
 describe(
-  "feedback storage",
+  "wallet feedback storage",
   () => {
     it(
-      "links feedback to a registered user",
+      "stores feedback using the wallet as identity",
       async () => {
-        const user =
-          await registerUser({
-            name: "Feedback User",
-            email:
-              "feedback@example.com",
-            walletAddress:
-              TEST_WALLET,
-          });
-
         const feedback =
           await createFeedback({
             walletAddress:
@@ -174,12 +186,23 @@ describe(
 
         expect(
           feedback.userId
-        ).toBe(user.id);
+        ).not.toBeNull();
 
         expect(
-          feedback
-            .improvementCategory
+          feedback.walletAddress
+        ).toBe(TEST_WALLET);
+
+        expect(
+          feedback.improvementCategory
         ).toBe("onboarding");
+
+        expect(feedback).not.toHaveProperty(
+          "name"
+        );
+
+        expect(feedback).not.toHaveProperty(
+          "email"
+        );
 
         const records =
           await listFeedback();
@@ -187,14 +210,33 @@ describe(
         expect(records).toHaveLength(1);
       }
     );
+
+    it(
+      "rejects a rating outside the supported range",
+      async () => {
+        await expect(
+          createFeedback({
+            walletAddress:
+              TEST_WALLET,
+
+            rating: 6,
+
+            comment:
+              "Invalid rating.",
+          })
+        ).rejects.toThrow(
+          "integer from 1 to 5"
+        );
+      }
+    );
   }
 );
 
 describe(
-  "persistent analytics shape",
+  "wallet analytics",
   () => {
     it(
-      "counts verified transaction activity",
+      "counts verified transaction activity and feedback",
       async () => {
         await createInteraction({
           walletAddress:
@@ -212,6 +254,9 @@ describe(
 
           action:
             "chapters_unlocked",
+
+          contractId:
+            TEST_CONTRACT,
 
           status: "success",
 

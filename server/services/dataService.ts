@@ -1,4 +1,6 @@
-import { randomUUID } from "node:crypto";
+import {
+  randomUUID,
+} from "node:crypto";
 
 import type {
   QueryResultRow,
@@ -13,6 +15,7 @@ import {
   getUserByWallet,
   isValidWalletAddress,
   markUserActivity,
+  registerUser,
 } from "./userService";
 
 export type InteractionStatus =
@@ -25,6 +28,7 @@ export interface InteractionInput {
   action: string;
   status: InteractionStatus;
   txHash?: string;
+  contractId?: string;
   contractFunction?: string;
   network?: string;
   metadata?: Record<string, unknown>;
@@ -37,6 +41,7 @@ export interface InteractionRecord {
   action: string;
   status: InteractionStatus;
   txHash?: string;
+  contractId?: string;
   contractFunction?: string;
   network: string;
   metadata?: Record<string, unknown>;
@@ -44,7 +49,7 @@ export interface InteractionRecord {
 }
 
 export interface FeedbackInput {
-  walletAddress?: string;
+  walletAddress: string;
   rating: number;
   comment: string;
   improvementCategory?: string;
@@ -53,7 +58,7 @@ export interface FeedbackInput {
 export interface FeedbackRecord {
   id: string;
   userId: string | null;
-  walletAddress?: string;
+  walletAddress: string;
   rating: number;
   comment: string;
   improvementCategory?: string;
@@ -90,8 +95,8 @@ interface InteractionRow
   action: string;
   status: InteractionStatus;
   tx_hash: string | null;
-  contract_function:
-    string | null;
+  contract_id: string | null;
+  contract_function: string | null;
   network: string;
   metadata:
     Record<string, unknown> | null;
@@ -102,42 +107,52 @@ interface FeedbackRow
   extends QueryResultRow {
   id: string;
   user_id: string | null;
-  wallet_address: string | null;
+  wallet_address: string;
   rating: number;
   comment: string;
-  improvement_category:
-    string | null;
+  improvement_category: string | null;
   created_at: Date | string;
 }
 
 interface StatusCountRow
   extends QueryResultRow {
   status: InteractionStatus;
-  count: number;
+  count: number | string;
 }
 
 interface ActionCountRow
   extends QueryResultRow {
   action: string;
-  count: number;
+  count: number | string;
 }
 
 interface InteractionSummaryRow
   extends QueryResultRow {
-  total_interactions: number;
-  unique_wallets: number;
-  successful_transactions: number;
-  verified_active_wallets: number;
+  total_interactions:
+    number | string;
+  unique_wallets:
+    number | string;
+  successful_transactions:
+    number | string;
+  verified_active_wallets:
+    number | string;
 }
 
 interface FeedbackSummaryRow
   extends QueryResultRow {
-  total_feedback: number;
+  total_feedback:
+    number | string;
   average_rating:
     number | string | null;
 }
 
 const MAX_MEMORY_RECORDS = 500;
+
+const ON_CHAIN_ACTIONS =
+  new Set([
+    "demo_coins_claimed",
+    "chapters_unlocked",
+  ]);
 
 const interactions:
 InteractionRecord[] = [];
@@ -147,7 +162,7 @@ FeedbackRecord[] = [];
 
 function normalizeLimit(
   limit: number,
-  maximum = 200
+  maximum = 500
 ): number {
   if (
     !Number.isInteger(limit) ||
@@ -168,7 +183,7 @@ function normalizeRequiredText(
   maximumLength: number
 ): string {
   const normalizedValue =
-    value.trim();
+    String(value || "").trim();
 
   if (!normalizedValue) {
     throw new Error(
@@ -192,7 +207,9 @@ function normalizeOptionalText(
   value: string | undefined,
   maximumLength: number
 ): string | undefined {
-  if (!value) {
+  if (
+    typeof value !== "string"
+  ) {
     return undefined;
   }
 
@@ -221,7 +238,7 @@ function normalizeWalletAddress(
   return normalizeRequiredText(
     walletAddress,
     "walletAddress",
-    128
+    56
   ).toUpperCase();
 }
 
@@ -280,6 +297,46 @@ function cloneFeedback(
     ...feedback,
   };
 }
+export function isInteractionStatus(
+  value: string
+): value is InteractionStatus {
+  return [
+    "pending",
+    "success",
+    "failed",
+  ].includes(value);
+}
+
+export function isValidContractId(
+  value: string
+): boolean {
+  return /^C[A-Z2-7]{55}$/.test(
+    String(value || "")
+      .trim()
+      .toUpperCase()
+  );
+}
+
+export function isVerifiedOnChainInteraction(
+  interaction:
+    Pick<
+      InteractionRecord,
+      | "status"
+      | "txHash"
+      | "contractId"
+    >
+): boolean {
+  return (
+    interaction.status ===
+      "success" &&
+    Boolean(
+      interaction.txHash
+    ) &&
+    Boolean(
+      interaction.contractId
+    )
+  );
+}
 
 function mapInteractionRow(
   row: InteractionRow
@@ -297,6 +354,9 @@ function mapInteractionRow(
     txHash:
       row.tx_hash || undefined,
 
+    contractId:
+      row.contract_id || undefined,
+
     contractFunction:
       row.contract_function ||
       undefined,
@@ -307,7 +367,9 @@ function mapInteractionRow(
       row.metadata || undefined,
 
     createdAt:
-      toIsoString(row.created_at),
+      toIsoString(
+        row.created_at
+      ),
   };
 }
 
@@ -319,36 +381,49 @@ function mapFeedbackRow(
     userId: row.user_id,
 
     walletAddress:
-      row.wallet_address ||
-      undefined,
+      row.wallet_address,
 
-    rating: Number(row.rating),
-    comment: row.comment,
+    rating:
+      Number(row.rating),
+
+    comment:
+      row.comment,
 
     improvementCategory:
       row.improvement_category ||
       undefined,
 
     createdAt:
-      toIsoString(row.created_at),
+      toIsoString(
+        row.created_at
+      ),
   };
+}
+
+async function ensureWalletUser(
+  walletAddress: string
+) {
+  const existingUser =
+    await getUserByWallet(
+      walletAddress
+    );
+
+  if (existingUser) {
+    return existingUser;
+  }
+
+  return registerUser({
+    walletAddress,
+  });
 }
 
 async function updateUserFromInteraction(
   interaction: InteractionRecord
 ): Promise<void> {
   if (
-    !isValidWalletAddress(
-      interaction.walletAddress
+    isVerifiedOnChainInteraction(
+      interaction
     )
-  ) {
-    return;
-  }
-
-  if (
-    interaction.status ===
-      "success" &&
-    interaction.txHash
   ) {
     await markUserActivity(
       interaction.walletAddress,
@@ -371,6 +446,131 @@ async function updateUserFromInteraction(
   }
 }
 
+async function findInteractionByTxHash(
+  txHash: string
+): Promise<InteractionRecord | null> {
+  const normalizedHash =
+    txHash.trim().toLowerCase();
+
+  if (!isDatabaseConfigured()) {
+    const interaction =
+      interactions.find(
+        (record) =>
+          record.txHash
+            ?.trim()
+            .toLowerCase() ===
+          normalizedHash
+      );
+
+    return interaction
+      ? cloneInteraction(
+          interaction
+        )
+      : null;
+  }
+
+  const result =
+    await queryDatabase<InteractionRow>(
+      `
+        SELECT
+          id,
+          user_id,
+          wallet_address,
+          action,
+          status,
+          tx_hash,
+          contract_id,
+          contract_function,
+          network,
+          metadata,
+          created_at
+        FROM interactions
+        WHERE
+          tx_hash IS NOT NULL
+          AND LOWER(tx_hash) =
+            LOWER($1)
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [txHash]
+    );
+
+  if (
+    result.rows.length === 0
+  ) {
+    return null;
+  }
+
+  return mapInteractionRow(
+    result.rows[0]
+  );
+}
+
+function transactionMatchesRequest(
+  existing: InteractionRecord,
+  input: {
+    walletAddress: string;
+    action: string;
+    status: InteractionStatus;
+    contractId?: string;
+  }
+): boolean {
+  return (
+    existing.walletAddress ===
+      input.walletAddress &&
+    existing.action ===
+      input.action &&
+    existing.status ===
+      input.status &&
+    (existing.contractId || "") ===
+      (input.contractId || "")
+  );
+}
+
+async function validateTransactionOwnership(
+  input: {
+    walletAddress: string;
+    action: string;
+    status: InteractionStatus;
+    txHash?: string;
+    contractId?: string;
+  }
+): Promise<InteractionRecord | null> {
+  if (!input.txHash) {
+    return null;
+  }
+
+  const existing =
+    await findInteractionByTxHash(
+      input.txHash
+    );
+
+  if (!existing) {
+    return null;
+  }
+
+  if (
+    transactionMatchesRequest(
+      existing,
+      input
+    )
+  ) {
+    return existing;
+  }
+
+  if (
+    existing.walletAddress !==
+    input.walletAddress
+  ) {
+    throw new Error(
+      "Transaction hash is already associated with another wallet."
+    );
+  }
+
+  throw new Error(
+    "Transaction hash is already associated with another interaction."
+  );
+}
 export async function createInteraction(
   input: InteractionInput
 ): Promise<InteractionRecord> {
@@ -378,6 +578,26 @@ export async function createInteraction(
     normalizeWalletAddress(
       input.walletAddress
     );
+
+  if (
+    !isValidWalletAddress(
+      walletAddress
+    )
+  ) {
+    throw new Error(
+      "A valid Stellar wallet address is required."
+    );
+  }
+
+  if (
+    !isInteractionStatus(
+      input.status
+    )
+  ) {
+    throw new Error(
+      "A valid interaction status is required."
+    );
+  }
 
   const action =
     normalizeRequiredText(
@@ -392,6 +612,28 @@ export async function createInteraction(
       128
     );
 
+  const rawContractId =
+    normalizeOptionalText(
+      input.contractId,
+      56
+    );
+
+  const contractId =
+    rawContractId
+      ? rawContractId.toUpperCase()
+      : undefined;
+
+  if (
+    contractId &&
+    !isValidContractId(
+      contractId
+    )
+  ) {
+    throw new Error(
+      "A valid Stellar contract ID is required."
+    );
+  }
+
   const contractFunction =
     normalizeOptionalText(
       input.contractFunction,
@@ -404,26 +646,71 @@ export async function createInteraction(
     );
 
   const metadata =
-    cloneMetadata(input.metadata);
+    cloneMetadata(
+      input.metadata
+    );
+
+  const isSuccessfulOnChainAction =
+    input.status === "success" &&
+    ON_CHAIN_ACTIONS.has(action);
+
+  if (
+    isSuccessfulOnChainAction &&
+    !txHash
+  ) {
+    throw new Error(
+      "A transaction hash is required for a successful on-chain action."
+    );
+  }
+
+  if (
+    isSuccessfulOnChainAction &&
+    !contractId
+  ) {
+    throw new Error(
+      "A contract ID is required for a successful on-chain action."
+    );
+  }
+
+  if (
+    txHash &&
+    !contractId
+  ) {
+    throw new Error(
+      "A contract ID is required when a transaction hash is provided."
+    );
+  }
+
+  const existingInteraction =
+    await validateTransactionOwnership({
+      walletAddress,
+      action,
+      status:
+        input.status,
+      txHash,
+      contractId,
+    });
+
+  if (existingInteraction) {
+    return existingInteraction;
+  }
+
+  const user =
+    await ensureWalletUser(
+      walletAddress
+    );
 
   if (!isDatabaseConfigured()) {
-    const user =
-      isValidWalletAddress(
-        walletAddress
-      )
-        ? await getUserByWallet(
-            walletAddress
-          )
-        : null;
-
     const interaction:
     InteractionRecord = {
       id: randomUUID(),
-      userId: user?.id || null,
+      userId: user.id,
       walletAddress,
       action,
-      status: input.status,
+      status:
+        input.status,
       txHash,
+      contractId,
       contractFunction,
       network,
       metadata,
@@ -461,6 +748,7 @@ export async function createInteraction(
           user_id,
           wallet_address,
           action,
+          contract_id,
           contract_function,
           status,
           tx_hash,
@@ -469,19 +757,15 @@ export async function createInteraction(
         )
         VALUES (
           $1,
-          (
-            SELECT id
-            FROM users
-            WHERE wallet_address = $2
-            LIMIT 1
-          ),
           $2,
           $3,
           $4,
           $5,
           $6,
           $7,
-          $8::JSONB
+          $8,
+          $9,
+          $10::JSONB
         )
         RETURNING
           id,
@@ -490,6 +774,7 @@ export async function createInteraction(
           action,
           status,
           tx_hash,
+          contract_id,
           contract_function,
           network,
           metadata,
@@ -497,12 +782,15 @@ export async function createInteraction(
       `,
       [
         randomUUID(),
+        user.id,
         walletAddress,
         action,
+        contractId || null,
         contractFunction || null,
         input.status,
         txHash || null,
         network,
+
         JSON.stringify(
           metadata || {}
         ),
@@ -543,6 +831,7 @@ export async function listInteractions(
           action,
           status,
           tx_hash,
+          contract_id,
           contract_function,
           network,
           metadata,
@@ -563,18 +852,19 @@ export async function createFeedback(
   input: FeedbackInput
 ): Promise<FeedbackRecord> {
   const walletAddress =
-    input.walletAddress
-      ? normalizeWalletAddress(
-          input.walletAddress
-        )
-      : undefined;
-
-  const comment =
-    normalizeRequiredText(
-      input.comment,
-      "comment",
-      2000
+    normalizeWalletAddress(
+      input.walletAddress
     );
+
+  if (
+    !isValidWalletAddress(
+      walletAddress
+    )
+  ) {
+    throw new Error(
+      "A valid Stellar wallet address is required."
+    );
+  }
 
   if (
     !Number.isInteger(
@@ -588,27 +878,29 @@ export async function createFeedback(
     );
   }
 
+  const comment =
+    normalizeRequiredText(
+      input.comment,
+      "comment",
+      2000
+    );
+
   const improvementCategory =
     normalizeOptionalText(
       input.improvementCategory,
       80
     );
 
-  if (!isDatabaseConfigured()) {
-    const user =
-      walletAddress &&
-      isValidWalletAddress(
-        walletAddress
-      )
-        ? await getUserByWallet(
-            walletAddress
-          )
-        : null;
+  const user =
+    await ensureWalletUser(
+      walletAddress
+    );
 
+  if (!isDatabaseConfigured()) {
     const feedback:
     FeedbackRecord = {
       id: randomUUID(),
-      userId: user?.id || null,
+      userId: user.id,
       walletAddress,
       rating: input.rating,
       comment,
@@ -648,16 +940,11 @@ export async function createFeedback(
         )
         VALUES (
           $1,
-          (
-            SELECT id
-            FROM users
-            WHERE wallet_address = $2
-            LIMIT 1
-          ),
           $2,
           $3,
           $4,
-          $5
+          $5,
+          $6
         )
         RETURNING
           id,
@@ -670,10 +957,13 @@ export async function createFeedback(
       `,
       [
         randomUUID(),
-        walletAddress || null,
+        user.id,
+        walletAddress,
         input.rating,
         comment,
-        improvementCategory || null,
+
+        improvementCategory ||
+        null,
       ]
     );
 
@@ -716,129 +1006,118 @@ export async function listFeedback(
     mapFeedbackRow
   );
 }
-
-function getMemoryAnalytics():
-AnalyticsSummary {
-  const interactionStatusCounts:
-  Record<InteractionStatus, number> = {
-    pending: 0,
-    success: 0,
-    failed: 0,
-  };
-
-  const actionCounts:
-  Record<string, number> = {};
-
-  for (
-    const interaction of
-    interactions
-  ) {
-    interactionStatusCounts[
-      interaction.status
-    ] += 1;
-
-    actionCounts[
-      interaction.action
-    ] =
-      (
-        actionCounts[
-          interaction.action
-        ] || 0
-      ) + 1;
-  }
-
-  const successfulTransactions =
-    interactions.filter(
-      (interaction) =>
-        interaction.status ===
-          "success" &&
-        Boolean(
-          interaction.txHash
-        )
-    ).length;
-
-  const uniqueWallets =
-    new Set(
-      interactions.map(
-        (interaction) =>
-          interaction.walletAddress
-      )
-    ).size;
-
-  const verifiedActiveWallets =
-    new Set(
-      interactions
-        .filter(
-          (interaction) =>
-            interaction.status ===
-              "success" &&
-            Boolean(
-              interaction.txHash
-            )
-        )
-        .map(
-          (interaction) =>
-            interaction.walletAddress
-        )
-    ).size;
-
-  const averageRating =
-    feedbackEntries.length === 0
-      ? 0
-      : Number(
-          (
-            feedbackEntries.reduce(
-              (total, feedback) =>
-                total +
-                feedback.rating,
-              0
-            ) /
-            feedbackEntries.length
-          ).toFixed(2)
-        );
-
-  return {
-    totalInteractions:
-      interactions.length,
-
-    uniqueWallets,
-    successfulTransactions,
-    verifiedActiveWallets,
-    interactionStatusCounts,
-    actionCounts,
-
-    totalFeedback:
-      feedbackEntries.length,
-
-    averageRating,
-
-    latestInteraction:
-      interactions[0]
-        ? cloneInteraction(
-            interactions[0]
-          )
-        : null,
-
-    latestFeedback:
-      feedbackEntries[0]
-        ? cloneFeedback(
-            feedbackEntries[0]
-          )
-        : null,
-  };
-}
-
 export async function getAnalyticsSummary():
 Promise<AnalyticsSummary> {
   if (!isDatabaseConfigured()) {
-    return getMemoryAnalytics();
+    const interactionStatusCounts:
+    Record<InteractionStatus, number> = {
+      pending: 0,
+      success: 0,
+      failed: 0,
+    };
+
+    const actionCounts:
+    Record<string, number> = {};
+
+    const uniqueWallets =
+      new Set<string>();
+
+    const verifiedWallets =
+      new Set<string>();
+
+    let successfulTransactions = 0;
+
+    for (
+      const interaction of interactions
+    ) {
+      interactionStatusCounts[
+        interaction.status
+      ] += 1;
+
+      actionCounts[
+        interaction.action
+      ] =
+        (
+          actionCounts[
+            interaction.action
+          ] || 0
+        ) + 1;
+
+      uniqueWallets.add(
+        interaction.walletAddress
+      );
+
+      if (
+        isVerifiedOnChainInteraction(
+          interaction
+        )
+      ) {
+        successfulTransactions += 1;
+
+        verifiedWallets.add(
+          interaction.walletAddress
+        );
+      }
+    }
+
+    const averageRating =
+      feedbackEntries.length > 0
+        ? feedbackEntries.reduce(
+            (
+              total,
+              feedback
+            ) =>
+              total +
+              feedback.rating,
+            0
+          ) /
+          feedbackEntries.length
+        : 0;
+
+    return {
+      totalInteractions:
+        interactions.length,
+
+      uniqueWallets:
+        uniqueWallets.size,
+
+      successfulTransactions,
+
+      verifiedActiveWallets:
+        verifiedWallets.size,
+
+      interactionStatusCounts,
+      actionCounts,
+
+      totalFeedback:
+        feedbackEntries.length,
+
+      averageRating:
+        Number(
+          averageRating.toFixed(2)
+        ),
+
+      latestInteraction:
+        interactions[0]
+          ? cloneInteraction(
+              interactions[0]
+            )
+          : null,
+
+      latestFeedback:
+        feedbackEntries[0]
+          ? cloneFeedback(
+              feedbackEntries[0]
+            )
+          : null,
+    };
   }
 
   const [
-    interactionSummary,
-    statusSummary,
-    actionSummary,
-    feedbackSummary,
+    interactionSummaryResult,
+    statusResult,
+    actionResult,
+    feedbackSummaryResult,
     latestInteractions,
     latestFeedbackEntries,
   ] = await Promise.all([
@@ -857,8 +1136,9 @@ Promise<AnalyticsSummary> {
 
           COUNT(*) FILTER (
             WHERE
-              status = 'success' AND
-              tx_hash IS NOT NULL
+              status = 'success'
+              AND tx_hash IS NOT NULL
+              AND contract_id IS NOT NULL
           )::INT
             AS successful_transactions,
 
@@ -866,15 +1146,18 @@ Promise<AnalyticsSummary> {
             DISTINCT wallet_address
           ) FILTER (
             WHERE
-              status = 'success' AND
-              tx_hash IS NOT NULL
+              status = 'success'
+              AND tx_hash IS NOT NULL
+              AND contract_id IS NOT NULL
           )::INT
             AS verified_active_wallets
         FROM interactions
       `
     ),
 
-    queryDatabase<StatusCountRow>(
+    queryDatabase<
+      StatusCountRow
+    >(
       `
         SELECT
           status,
@@ -884,28 +1167,28 @@ Promise<AnalyticsSummary> {
       `
     ),
 
-    queryDatabase<ActionCountRow>(
+    queryDatabase<
+      ActionCountRow
+    >(
       `
         SELECT
           action,
           COUNT(*)::INT AS count
         FROM interactions
         GROUP BY action
-        ORDER BY count DESC
       `
     ),
 
-    queryDatabase<FeedbackSummaryRow>(
+    queryDatabase<
+      FeedbackSummaryRow
+    >(
       `
         SELECT
           COUNT(*)::INT
             AS total_feedback,
 
           COALESCE(
-            ROUND(
-              AVG(rating)::NUMERIC,
-              2
-            ),
+            AVG(rating),
             0
           )
             AS average_rating
@@ -913,41 +1196,17 @@ Promise<AnalyticsSummary> {
       `
     ),
 
-    queryDatabase<InteractionRow>(
-      `
-        SELECT
-          id,
-          user_id,
-          wallet_address,
-          action,
-          status,
-          tx_hash,
-          contract_function,
-          network,
-          metadata,
-          created_at
-        FROM interactions
-        ORDER BY created_at DESC
-        LIMIT 1
-      `
-    ),
-
-    queryDatabase<FeedbackRow>(
-      `
-        SELECT
-          id,
-          user_id,
-          wallet_address,
-          rating,
-          comment,
-          improvement_category,
-          created_at
-        FROM feedback
-        ORDER BY created_at DESC
-        LIMIT 1
-      `
-    ),
+    listInteractions(1),
+    listFeedback(1),
   ]);
+
+  const summary =
+    interactionSummaryResult
+      .rows[0];
+
+  const feedbackSummary =
+    feedbackSummaryResult
+      .rows[0];
 
   const interactionStatusCounts:
   Record<InteractionStatus, number> = {
@@ -957,8 +1216,7 @@ Promise<AnalyticsSummary> {
   };
 
   for (
-    const row of
-    statusSummary.rows
+    const row of statusResult.rows
   ) {
     interactionStatusCounts[
       row.status
@@ -969,44 +1227,37 @@ Promise<AnalyticsSummary> {
   Record<string, number> = {};
 
   for (
-    const row of
-    actionSummary.rows
+    const row of actionResult.rows
   ) {
     actionCounts[row.action] =
       Number(row.count);
   }
 
-  const interactionRow =
-    interactionSummary.rows[0];
-
-  const feedbackRow =
-    feedbackSummary.rows[0];
-
   return {
     totalInteractions:
       Number(
-        interactionRow
+        summary
           ?.total_interactions || 0
       ),
 
     uniqueWallets:
       Number(
-        interactionRow
+        summary
           ?.unique_wallets || 0
       ),
 
     successfulTransactions:
       Number(
-        interactionRow
+        summary
           ?.successful_transactions ||
-          0
+        0
       ),
 
     verifiedActiveWallets:
       Number(
-        interactionRow
+        summary
           ?.verified_active_wallets ||
-          0
+        0
       ),
 
     interactionStatusCounts,
@@ -1014,30 +1265,25 @@ Promise<AnalyticsSummary> {
 
     totalFeedback:
       Number(
-        feedbackRow
+        feedbackSummary
           ?.total_feedback || 0
       ),
 
     averageRating:
       Number(
-        feedbackRow
-          ?.average_rating || 0
+        Number(
+          feedbackSummary
+            ?.average_rating || 0
+        ).toFixed(2)
       ),
 
     latestInteraction:
-      latestInteractions.rows[0]
-        ? mapInteractionRow(
-            latestInteractions.rows[0]
-          )
-        : null,
+      latestInteractions[0] ||
+      null,
 
     latestFeedback:
-      latestFeedbackEntries.rows[0]
-        ? mapFeedbackRow(
-            latestFeedbackEntries
-              .rows[0]
-          )
-        : null,
+      latestFeedbackEntries[0] ||
+      null,
   };
 }
 

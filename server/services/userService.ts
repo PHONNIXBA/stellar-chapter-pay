@@ -1,4 +1,6 @@
-import { randomUUID } from "node:crypto";
+import {
+  randomUUID,
+} from "node:crypto";
 
 import type {
   QueryResultRow,
@@ -16,43 +18,59 @@ export type OnboardingStatus =
   | "active";
 
 export interface UserInput {
-  name: string;
-  email: string;
   walletAddress: string;
 }
 
 export interface UserRecord
   extends UserInput {
   id: string;
+
   onboardingStatus:
     OnboardingStatus;
+
   onboardingCompleted: boolean;
+
   joinedAt: string;
-  lastActiveAt: string | null;
+
+  lastActiveAt:
+    string | null;
+
   createdAt: string;
+
   updatedAt: string;
 }
 
 interface DatabaseUserRow
   extends QueryResultRow {
   id: string;
-  name: string;
-  email: string;
+
   wallet_address: string;
+
   onboarding_status:
     OnboardingStatus;
+
   onboarding_completed: boolean;
-  joined_at: Date | string;
+
+  joined_at:
+    Date | string;
+
   last_active_at:
     | Date
     | string
     | null;
-  created_at: Date | string;
-  updated_at: Date | string;
+
+  created_at:
+    Date | string;
+
+  updated_at:
+    Date | string;
 }
 
 const usersByWallet =
-  new Map<string, UserRecord>();
+  new Map<
+    string,
+    UserRecord
+  >();
 
 function normalizeWalletAddress(
   walletAddress: string
@@ -60,22 +78,6 @@ function normalizeWalletAddress(
   return walletAddress
     .trim()
     .toUpperCase();
-}
-
-function normalizeEmail(
-  email: string
-): string {
-  return email
-    .trim()
-    .toLowerCase();
-}
-
-function normalizeName(
-  name: string
-): string {
-  return name
-    .trim()
-    .replace(/\s+/g, " ");
 }
 
 function toIsoString(
@@ -102,8 +104,6 @@ function mapDatabaseUser(
 ): UserRecord {
   return {
     id: row.id,
-    name: row.name,
-    email: row.email,
 
     walletAddress:
       row.wallet_address,
@@ -115,7 +115,9 @@ function mapDatabaseUser(
       row.onboarding_completed,
 
     joinedAt:
-      toIsoString(row.joined_at),
+      toIsoString(
+        row.joined_at
+      ),
 
     lastActiveAt:
       row.last_active_at
@@ -125,10 +127,14 @@ function mapDatabaseUser(
         : null,
 
     createdAt:
-      toIsoString(row.created_at),
+      toIsoString(
+        row.created_at
+      ),
 
     updatedAt:
-      toIsoString(row.updated_at),
+      toIsoString(
+        row.updated_at
+      ),
   };
 }
 
@@ -146,31 +152,6 @@ function normalizeLimit(
   return Math.min(
     limit,
     maximum
-  );
-}
-
-export function isValidUserName(
-  name: string
-): boolean {
-  const normalizedName =
-    normalizeName(name);
-
-  return (
-    normalizedName.length >= 2 &&
-    normalizedName.length <= 120
-  );
-}
-
-export function isValidEmail(
-  email: string
-): boolean {
-  const normalizedEmail =
-    normalizeEmail(email);
-
-  return (
-    normalizedEmail.length <= 320 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-      .test(normalizedEmail)
   );
 }
 
@@ -198,42 +179,14 @@ export function isValidOnboardingStatus(
 function validateUserInput(
   input: UserInput
 ): UserInput {
-  const normalizedInput = {
-    name:
-      normalizeName(input.name),
-
-    email:
-      normalizeEmail(input.email),
-
-    walletAddress:
-      normalizeWalletAddress(
-        input.walletAddress
-      ),
-  };
-
-  if (
-    !isValidUserName(
-      normalizedInput.name
-    )
-  ) {
-    throw new Error(
-      "Name must contain between 2 and 120 characters."
+  const walletAddress =
+    normalizeWalletAddress(
+      input.walletAddress
     );
-  }
-
-  if (
-    !isValidEmail(
-      normalizedInput.email
-    )
-  ) {
-    throw new Error(
-      "A valid email address is required."
-    );
-  }
 
   if (
     !isValidWalletAddress(
-      normalizedInput.walletAddress
+      walletAddress
     )
   ) {
     throw new Error(
@@ -241,9 +194,10 @@ function validateUserInput(
     );
   }
 
-  return normalizedInput;
+  return {
+    walletAddress,
+  };
 }
-
 function registerMemoryUser(
   input: UserInput
 ): UserRecord {
@@ -256,11 +210,23 @@ function registerMemoryUser(
     new Date().toISOString();
 
   if (existingUser) {
-    const updatedUser = {
+    const updatedUser:
+    UserRecord = {
       ...existingUser,
-      name: input.name,
-      email: input.email,
-      updatedAt: now,
+
+      onboardingStatus:
+        existingUser
+          .onboardingStatus ===
+          "registered"
+          ? "wallet_connected"
+          : existingUser
+              .onboardingStatus,
+
+      onboardingCompleted:
+        true,
+
+      updatedAt:
+        now,
     };
 
     usersByWallet.set(
@@ -273,20 +239,30 @@ function registerMemoryUser(
     );
   }
 
-  const user: UserRecord = {
+  const user:
+  UserRecord = {
     id: randomUUID(),
-    ...input,
+
+    walletAddress:
+      input.walletAddress,
 
     onboardingStatus:
-      "registered",
+      "wallet_connected",
 
     onboardingCompleted:
-      false,
+      true,
 
-    joinedAt: now,
-    lastActiveAt: null,
-    createdAt: now,
-    updatedAt: now,
+    joinedAt:
+      now,
+
+    lastActiveAt:
+      null,
+
+    createdAt:
+      now,
+
+    updatedAt:
+      now,
   };
 
   usersByWallet.set(
@@ -310,24 +286,40 @@ export async function registerUser(
   }
 
   const result =
-    await queryDatabase<DatabaseUserRow>(
+    await queryDatabase<
+      DatabaseUserRow
+    >(
       `
         INSERT INTO users (
           id,
-          name,
-          email,
+          wallet_address,
+          onboarding_status,
+          onboarding_completed
+        )
+        VALUES (
+          $1,
+          $2,
+          'wallet_connected',
+          TRUE
+        )
+        ON CONFLICT (
           wallet_address
         )
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (wallet_address)
         DO UPDATE SET
-          name = EXCLUDED.name,
-          email = EXCLUDED.email,
+          onboarding_status =
+            CASE
+              WHEN
+                users.onboarding_status =
+                'registered'
+              THEN
+                'wallet_connected'
+              ELSE
+                users.onboarding_status
+            END,
+          onboarding_completed = TRUE,
           updated_at = NOW()
         RETURNING
           id,
-          name,
-          email,
           wallet_address,
           onboarding_status,
           onboarding_completed,
@@ -338,9 +330,9 @@ export async function registerUser(
       `,
       [
         randomUUID(),
-        normalizedInput.name,
-        normalizedInput.email,
-        normalizedInput.walletAddress,
+
+        normalizedInput
+          .walletAddress,
       ]
     );
 
@@ -377,12 +369,12 @@ export async function getUserByWallet(
   }
 
   const result =
-    await queryDatabase<DatabaseUserRow>(
+    await queryDatabase<
+      DatabaseUserRow
+    >(
       `
         SELECT
           id,
-          name,
-          email,
           wallet_address,
           onboarding_status,
           onboarding_completed,
@@ -397,7 +389,9 @@ export async function getUserByWallet(
       [normalizedWallet]
     );
 
-  if (result.rows.length === 0) {
+  if (
+    result.rows.length === 0
+  ) {
     return null;
   }
 
@@ -405,9 +399,9 @@ export async function getUserByWallet(
     result.rows[0]
   );
 }
-
 export async function markUserActivity(
   walletAddress: string,
+
   onboardingStatus:
     OnboardingStatus = "active"
 ): Promise<UserRecord | null> {
@@ -449,18 +443,29 @@ export async function markUserActivity(
     const now =
       new Date().toISOString();
 
-    const updatedUser: UserRecord = {
+    const onboardingCompleted =
+      existingUser
+        .onboardingCompleted ||
+      onboardingStatus ===
+        "wallet_connected" ||
+      onboardingStatus ===
+        "funded" ||
+      onboardingStatus ===
+        "active";
+
+    const updatedUser:
+    UserRecord = {
       ...existingUser,
 
       onboardingStatus,
 
-      onboardingCompleted:
-        existingUser
-          .onboardingCompleted ||
-        onboardingStatus === "active",
+      onboardingCompleted,
 
-      lastActiveAt: now,
-      updatedAt: now,
+      lastActiveAt:
+        now,
+
+      updatedAt:
+        now,
     };
 
     usersByWallet.set(
@@ -474,24 +479,31 @@ export async function markUserActivity(
   }
 
   const result =
-    await queryDatabase<DatabaseUserRow>(
+    await queryDatabase<
+      DatabaseUserRow
+    >(
       `
         UPDATE users
         SET
           onboarding_status = $2,
+
           onboarding_completed =
             CASE
-              WHEN $2 = 'active'
-                THEN TRUE
+              WHEN $2 IN (
+                'wallet_connected',
+                'funded',
+                'active'
+              )
+              THEN TRUE
               ELSE onboarding_completed
             END,
+
           last_active_at = NOW(),
+
           updated_at = NOW()
         WHERE wallet_address = $1
         RETURNING
           id,
-          name,
-          email,
           wallet_address,
           onboarding_status,
           onboarding_completed,
@@ -506,7 +518,9 @@ export async function markUserActivity(
       ]
     );
 
-  if (result.rows.length === 0) {
+  if (
+    result.rows.length === 0
+  ) {
     return null;
   }
 
@@ -526,22 +540,29 @@ export async function listUsers(
       usersByWallet.values()
     )
       .sort(
-        (first, second) =>
-          second.joinedAt.localeCompare(
-            first.joinedAt
-          )
+        (
+          first,
+          second
+        ) =>
+          second.joinedAt
+            .localeCompare(
+              first.joinedAt
+            )
       )
-      .slice(0, safeLimit)
+      .slice(
+        0,
+        safeLimit
+      )
       .map(cloneUser);
   }
 
   const result =
-    await queryDatabase<DatabaseUserRow>(
+    await queryDatabase<
+      DatabaseUserRow
+    >(
       `
         SELECT
           id,
-          name,
-          email,
           wallet_address,
           onboarding_status,
           onboarding_completed,

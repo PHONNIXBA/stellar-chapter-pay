@@ -1,13 +1,16 @@
 const DEFAULT_API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL?.trim() ||
+  import.meta.env
+    .VITE_API_BASE_URL
+    ?.trim() ||
   "http://localhost:3001";
 
 const DEFAULT_TIMEOUT_MS = 8000;
-const DEFAULT_LIST_LIMIT = 50;
-const MAX_LIST_LIMIT = 200;
 
 function normalizeBaseUrl(value) {
-  return value.replace(/\/+$/, "");
+  return value.replace(
+    /\/+$/,
+    ""
+  );
 }
 
 function normalizeRequiredString(
@@ -32,23 +35,6 @@ function normalizeRequiredString(
   return normalizedValue;
 }
 
-function normalizeListLimit(limit) {
-  const normalizedLimit =
-    Number(limit);
-
-  if (
-    !Number.isInteger(normalizedLimit) ||
-    normalizedLimit <= 0
-  ) {
-    return DEFAULT_LIST_LIMIT;
-  }
-
-  return Math.min(
-    normalizedLimit,
-    MAX_LIST_LIMIT
-  );
-}
-
 async function readResponsePayload(
   response
 ) {
@@ -58,7 +44,8 @@ async function readResponsePayload(
 
   const contentType =
     response.headers
-      ?.get?.("content-type") || "";
+      ?.get?.("content-type") ||
+    "";
 
   if (
     contentType.includes(
@@ -89,12 +76,22 @@ function createApiError(
     payload?.message ||
     `API request failed with status ${response.status}.`;
 
-  const error = new Error(message);
+  const error =
+    new Error(message);
 
-  error.status = response.status;
+  error.status =
+    response.status;
 
   return error;
 }
+
+export function getApiBaseUrl() {
+  return normalizeBaseUrl(
+    DEFAULT_API_BASE_URL
+  );
+}
+
+
 
 export async function requestJson(
   path,
@@ -102,9 +99,13 @@ export async function requestJson(
     method = "GET",
     body,
     headers = {},
-    timeoutMs = DEFAULT_TIMEOUT_MS,
+    timeoutMs =
+      DEFAULT_TIMEOUT_MS,
+
     fetchImplementation =
       globalThis.fetch,
+
+    signal,
   } = {}
 ) {
   if (
@@ -116,18 +117,40 @@ export async function requestJson(
     );
   }
 
-  const controller =
+  const timeoutController =
     new AbortController();
 
   const timeoutId =
     globalThis.setTimeout(
-      () => controller.abort(),
+      () =>
+        timeoutController.abort(),
       timeoutMs
     );
 
+  const abortRequest = () => {
+    timeoutController.abort();
+  };
+
+  if (signal) {
+    if (signal.aborted) {
+      timeoutController.abort();
+    }
+    else {
+      signal.addEventListener(
+        "abort",
+        abortRequest,
+        {
+          once: true,
+        }
+      );
+    }
+  }
+
   try {
     const requestHeaders = {
-      Accept: "application/json",
+      Accept:
+        "application/json",
+
       ...headers,
     };
 
@@ -139,19 +162,23 @@ export async function requestJson(
 
     const response =
       await fetchImplementation(
-        `${normalizeBaseUrl(
-          DEFAULT_API_BASE_URL
-        )}${path}`,
+        `${getApiBaseUrl()}${path}`,
         {
           method,
-          headers: requestHeaders,
+
+          headers:
+            requestHeaders,
 
           body:
             body === undefined
               ? undefined
-              : JSON.stringify(body),
+              : JSON.stringify(
+                  body
+                ),
 
-          signal: controller.signal,
+          signal:
+            timeoutController
+              .signal,
         }
       );
 
@@ -172,7 +199,8 @@ export async function requestJson(
   catch (error) {
     if (
       error instanceof Error &&
-      error.name === "AbortError"
+      error.name ===
+        "AbortError"
     ) {
       throw new Error(
         "The backend request timed out.",
@@ -188,66 +216,64 @@ export async function requestJson(
     globalThis.clearTimeout(
       timeoutId
     );
+
+    if (signal) {
+      signal.removeEventListener(
+        "abort",
+        abortRequest
+      );
+    }
   }
 }
-
-export function fetchApiHealth() {
-  return requestJson("/health");
-}
-
-export function fetchRuntimeConfig() {
-  return requestJson("/api/config");
-}
-
-export function fetchContractFunctions() {
+export function fetchApiHealth(
+  options = {}
+) {
   return requestJson(
-    "/api/functions"
+    "/health",
+    options
+  );
+}
+
+export function fetchRuntimeConfig(
+  options = {}
+) {
+  return requestJson(
+    "/api/config",
+    options
+  );
+}
+
+export function fetchContractFunctions(
+  options = {}
+) {
+  return requestJson(
+    "/api/functions",
+    options
   );
 }
 
 export function registerUser({
-  name,
-  email,
   walletAddress,
 }) {
-  return requestJson("/api/users", {
-    method: "POST",
-
-    body: {
-      name:
-        normalizeRequiredString(
-          name,
-          "Name"
-        ),
-
-      email:
-        normalizeRequiredString(
-          email,
-          "Email"
-        ).toLowerCase(),
-
-      walletAddress:
-        normalizeRequiredString(
-          walletAddress,
-          "Wallet address"
-        ).toUpperCase(),
-    },
-  });
-}
-
-export function fetchUsers(
-  limit = DEFAULT_LIST_LIMIT
-) {
-  const safeLimit =
-    normalizeListLimit(limit);
-
   return requestJson(
-    `/api/users?limit=${safeLimit}`
+    "/api/users",
+    {
+      method: "POST",
+
+      body: {
+        walletAddress:
+          normalizeRequiredString(
+            walletAddress,
+            "Wallet address"
+          ).toUpperCase(),
+      },
+    }
   );
 }
 
 export function fetchUserByWallet(
-  walletAddress
+  walletAddress,
+  options = {}
 ) {
   const normalizedWallet =
     normalizeRequiredString(
@@ -258,18 +284,8 @@ export function fetchUserByWallet(
   return requestJson(
     `/api/users/${encodeURIComponent(
       normalizedWallet
-    )}`
-  );
-}
-
-export function fetchInteractions(
-  limit = DEFAULT_LIST_LIMIT
-) {
-  const safeLimit =
-    normalizeListLimit(limit);
-
-  return requestJson(
-    `/api/interactions?limit=${safeLimit}`
+    )}`,
+    options
   );
 }
 
@@ -285,17 +301,6 @@ export function recordInteraction(
   );
 }
 
-export function fetchFeedback(
-  limit = DEFAULT_LIST_LIMIT
-) {
-  const safeLimit =
-    normalizeListLimit(limit);
-
-  return requestJson(
-    `/api/feedback?limit=${safeLimit}`
-  );
-}
-
 export function submitFeedback(
   feedback
 ) {
@@ -308,14 +313,29 @@ export function submitFeedback(
   );
 }
 
-export function fetchAnalytics() {
+export function fetchAnalytics(
+  options = {}
+) {
   return requestJson(
-    "/api/analytics"
+    "/api/analytics",
+    options
   );
 }
 
-export function fetchProductReadiness() {
+export function fetchProductReadiness(
+  options = {}
+) {
   return requestJson(
-    "/api/product-readiness"
+    "/api/product-readiness",
+    options
+  );
+}
+
+export function fetchPublicEvidence(
+  options = {}
+) {
+  return requestJson(
+    "/api/evidence",
+    options
   );
 }

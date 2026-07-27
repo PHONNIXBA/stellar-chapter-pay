@@ -10,7 +10,6 @@ import "./App.css";
 
 import OnboardingForm from "./components/OnboardingForm";
 import FeedbackForm from "./components/FeedbackForm";
-import Level5Dashboard from "./components/Level5Dashboard";
 
 import {
   createTransactionExplorerUrl,
@@ -51,6 +50,7 @@ import {
   canUnlockChapters,
   clearApplicationCache,
   loadCache,
+  removeCache,
   saveCache,
 } from "./utils/cache";
 
@@ -85,6 +85,101 @@ function formatTimestamp(value) {
     .toLocaleString();
 }
 
+const USER_ACTIVITY_LABELS =
+  Object.freeze({
+    demo_coins_claimed:
+      "Demo coins claimed",
+
+    chapters_unlocked:
+      "Chapters unlocked",
+
+    feedback_submitted:
+      "Feedback submitted",
+  });
+
+function getVisibleActivityEvents() {
+  return readLocalAnalyticsEvents()
+    .filter(
+      (activity) =>
+        Boolean(
+          USER_ACTIVITY_LABELS[
+            activity?.name
+          ]
+        )
+    )
+    .slice(0, 3);
+}
+
+function getActivityLabel(
+  activity
+) {
+  return (
+    USER_ACTIVITY_LABELS[
+      activity?.name
+    ] ||
+    "Activity completed"
+  );
+}
+
+function getActivityDetail(
+  activity
+) {
+  const properties =
+    activity?.properties || {};
+
+  if (
+    activity?.name ===
+    "chapters_unlocked"
+  ) {
+    const quantity =
+      Number(
+        properties.quantity
+      );
+
+    if (
+      Number.isInteger(quantity) &&
+      quantity > 0
+    ) {
+      return (
+        `${quantity} ` +
+        `${quantity === 1
+          ? "chapter"
+          : "chapters"} unlocked`
+      );
+    }
+
+    return "Chapter access updated";
+  }
+
+  if (
+    activity?.name ===
+    "feedback_submitted"
+  ) {
+    const rating =
+      Number(
+        properties.rating
+      );
+
+    if (
+      Number.isInteger(rating) &&
+      rating >= 1 &&
+      rating <= 5
+    ) {
+      return `${rating}/5 rating submitted`;
+    }
+
+    return "Product feedback recorded";
+  }
+
+  if (
+    activity?.name ===
+    "demo_coins_claimed"
+  ) {
+    return "Testnet demo balance updated";
+  }
+
+  return "Action completed";
+}
 function classifyTransactionError(error) {
   const message = String(
     error?.message || ""
@@ -226,25 +321,14 @@ function App() {
   const [
     txStatus,
     setTxStatus,
-  ] = useState(() =>
-    loadCache(
-      CACHE_KEYS.txHash,
-      ""
-    )
-      ? "Loaded the latest transaction from cache."
-      : "No transaction yet."
+  ] = useState(
+    "No transaction yet."
   );
 
   const [
     txHash,
     setTxHash,
-  ] = useState(() =>
-    loadCache(
-      CACHE_KEYS.txHash,
-      ""
-    )
-  );
-
+  ] = useState("");
   const [
     errorType,
     setErrorType,
@@ -284,8 +368,7 @@ function App() {
     activityEvents,
     setActivityEvents,
   ] = useState(() =>
-    readLocalAnalyticsEvents()
-      .slice(0, 6)
+    getVisibleActivityEvents()
   );
 
   const [
@@ -360,8 +443,7 @@ function App() {
       );
 
       setActivityEvents(
-        readLocalAnalyticsEvents()
-          .slice(0, 6)
+        getVisibleActivityEvents()
       );
     },
     []
@@ -597,6 +679,16 @@ function App() {
           wallet.walletName ||
           "Stellar wallet";
 
+        setTxHash("");
+
+        setTxStatus(
+          "No transaction yet."
+        );
+
+        removeCache(
+          CACHE_KEYS.txHash
+        );
+
         let runtimeConfig = {
           chapterContractId,
           tokenContractId,
@@ -821,32 +913,12 @@ function App() {
                 transactionHash
               );
 
-              saveCache(
-                CACHE_KEYS.txHash,
-                transactionHash
-              );
 
               setTxStatus(
                 "Transaction submitted. Waiting for confirmation..."
               );
 
-              void recordRemoteInteraction({
-                walletAddress,
 
-                action:
-                  "demo_coins_claimed",
-
-                contractFunction:
-                  "faucet",
-
-                status: "pending",
-
-                txHash:
-                  transactionHash,
-
-                network:
-                  STELLAR_NETWORK.name,
-              });
             },
         });
 
@@ -859,24 +931,33 @@ function App() {
           { walletAddress }
         );
 
-        void recordRemoteInteraction({
-          walletAddress,
+        if (submittedTransactionHash) {
+          void recordRemoteInteraction({
+            walletAddress,
 
-          action:
-            "demo_coins_claimed",
+            action:
+              "demo_coins_claimed",
 
-          contractFunction:
-            "faucet",
+            contractId:
+              tokenContractId,
 
-          status: "success",
+            contractFunction:
+              "faucet",
 
-          txHash:
-            submittedTransactionHash ||
-            undefined,
+            status: "success",
 
-          network:
-            STELLAR_NETWORK.name,
-        });
+            txHash:
+              submittedTransactionHash,
+
+            network:
+              STELLAR_NETWORK.name,
+          });
+        }
+        else {
+          console.warn(
+            "Confirmed Coin claim did not return a transaction hash."
+          );
+        }
 
         await refreshAccountData(
           walletAddress
@@ -901,29 +982,7 @@ function App() {
           "Demo Coin claim failed."
         );
 
-        void recordRemoteInteraction({
-          walletAddress,
 
-          action:
-            "demo_coins_claimed",
-
-          contractFunction:
-            "faucet",
-
-          status: "failed",
-
-          txHash:
-            submittedTransactionHash ||
-            undefined,
-
-          network:
-            STELLAR_NETWORK.name,
-
-          metadata: {
-            errorType:
-              classifiedError.type,
-          },
-        });
       } finally {
         setIsClaiming(false);
       }
@@ -977,39 +1036,12 @@ function App() {
                 transactionHash
               );
 
-              saveCache(
-                CACHE_KEYS.txHash,
-                transactionHash
-              );
 
               setTxStatus(
                 "Transaction submitted. Waiting for confirmation..."
               );
 
-              void recordRemoteInteraction({
-                walletAddress,
 
-                action:
-                  "chapters_unlocked",
-
-                contractFunction:
-                  "unlock_with_payment",
-
-                status: "pending",
-
-                txHash:
-                  transactionHash,
-
-                network:
-                  STELLAR_NETWORK.name,
-
-                metadata: {
-                  quantity:
-                    quantityNumber,
-
-                  totalPrice,
-                },
-              });
             },
         });
 
@@ -1027,31 +1059,40 @@ function App() {
           }
         );
 
-        void recordRemoteInteraction({
-          walletAddress,
+        if (submittedTransactionHash) {
+          void recordRemoteInteraction({
+            walletAddress,
 
-          action:
-            "chapters_unlocked",
+            action:
+              "chapters_unlocked",
 
-          contractFunction:
-            "unlock_with_payment",
+            contractId:
+              chapterContractId,
 
-          status: "success",
+            contractFunction:
+              "unlock_with_payment",
 
-          txHash:
-            submittedTransactionHash ||
-            undefined,
+            status: "success",
 
-          network:
-            STELLAR_NETWORK.name,
+            txHash:
+              submittedTransactionHash,
 
-          metadata: {
-            quantity:
-              quantityNumber,
+            network:
+              STELLAR_NETWORK.name,
 
-            totalPrice,
-          },
-        });
+            metadata: {
+              quantity:
+                quantityNumber,
+
+              totalPrice,
+            },
+          });
+        }
+        else {
+          console.warn(
+            "Confirmed chapter purchase did not return a transaction hash."
+          );
+        }
 
         await refreshAccountData(
           walletAddress
@@ -1076,34 +1117,7 @@ function App() {
           "Chapter purchase failed."
         );
 
-        void recordRemoteInteraction({
-          walletAddress,
 
-          action:
-            "chapters_unlocked",
-
-          contractFunction:
-            "unlock_with_payment",
-
-          status: "failed",
-
-          txHash:
-            submittedTransactionHash ||
-            undefined,
-
-          network:
-            STELLAR_NETWORK.name,
-
-          metadata: {
-            quantity:
-              quantityNumber,
-
-            totalPrice,
-
-            errorType:
-              classifiedError.type,
-          },
-        });
       } finally {
         setIsUnlocking(false);
       }
@@ -1594,7 +1608,7 @@ function App() {
           </article>
         </section>
 
-        <section className="lower-grid">
+        <section className="workspace-grid">
           <article className="panel">
             <div className="panel-header">
               <div>
@@ -1639,15 +1653,15 @@ function App() {
                 </strong>
               </div>
 
-              <div className="detail-row">
+              <div className="detail-row wallet-address-row">
                 <span>Address</span>
 
-                <strong>
-                  {walletAddress
-                    ? shortenMiddle(
-                        walletAddress
-                      )
-                    : "Not connected"}
+                <strong
+                  className="wallet-full-address"
+                  title={walletAddress}
+                >
+                  {walletAddress ||
+                    "Not connected"}
                 </strong>
               </div>
 
@@ -1696,87 +1710,28 @@ function App() {
             </div>
           </article>
 
-          <article className="panel">
+<article className="panel activity-panel">
             <div className="panel-header">
               <div>
                 <p className="panel-kicker">
-                  CONTRACT RUNTIME
+                  YOUR ACTIVITY
                 </p>
 
                 <h2>
-                  Soroban configuration
-                </h2>
-              </div>
-
-              <span
-                className={
-                  contractsLoaded
-                    ? "panel-state state-ready"
-                    : "panel-state"
-                }
-              >
-                {contractsLoaded
-                  ? "Available"
-                  : "Unavailable"}
-              </span>
-            </div>
-
-            <div className="contract-list">
-              <div className="contract-item">
-                <p className="detail-label">
-                  Chapter Payment
-                </p>
-
-                <p className="contract-address">
-                  {chapterContractId
-                    ? shortenMiddle(
-                        chapterContractId,
-                        14,
-                        12
-                      )
-                    : "Not loaded"}
-                </p>
-              </div>
-
-              <div className="contract-item">
-                <p className="detail-label">
-                  Chapter Token
-                </p>
-
-                <p className="contract-address">
-                  {tokenContractId
-                    ? shortenMiddle(
-                        tokenContractId,
-                        14,
-                        12
-                      )
-                    : "Not loaded"}
-                </p>
-              </div>
-            </div>
-          </article>
-
-          <article className="panel activity-panel">
-            <div className="panel-header">
-              <div>
-                <p className="panel-kicker">
-                  PRODUCT ANALYTICS
-                </p>
-
-                <h2>
-                  Recent activity
+                  Recent actions
                 </h2>
               </div>
 
               <span className="panel-state">
-                {activityEvents.length} events
+                {activityEvents.length} shown
               </span>
             </div>
 
             {activityEvents.length === 0 ? (
-              <p className="empty-state">
-                Wallet and contract activity
-                will appear here.
+              <p className="empty-state activity-empty-state">
+                Your latest coin claim,
+                chapter unlock and feedback
+                actions will appear here.
               </p>
             ) : (
               <div className="activity-list">
@@ -1786,22 +1741,35 @@ function App() {
                       className="activity-item"
                       key={activity.id}
                     >
-                      <span className="activity-dot" />
+                      <span
+                        className="activity-dot"
+                        aria-hidden="true"
+                      />
 
-                      <div>
+                      <div className="activity-content">
                         <p className="activity-name">
-                          {activity.name
-                            .replaceAll(
-                              "_",
-                              " "
-                            )}
-                        </p>
-
-                        <p className="activity-time">
-                          {formatTimestamp(
-                            activity.timestamp
+                          {getActivityLabel(
+                            activity
                           )}
                         </p>
+
+                        <div className="activity-meta">
+                          <span>
+                            {getActivityDetail(
+                              activity
+                            )}
+                          </span>
+
+                          <time
+                            dateTime={
+                              activity.timestamp
+                            }
+                          >
+                            {formatTimestamp(
+                              activity.timestamp
+                            )}
+                          </time>
+                        </div>
                       </div>
                     </div>
                   )
@@ -1809,10 +1777,6 @@ function App() {
               </div>
             )}
           </article>
-        </section>
-
-        <section className="level5-wrapper">
-          <Level5Dashboard />
         </section>
 
         <section className="feedback-wrapper">
@@ -1880,7 +1844,7 @@ function App() {
 
         <footer className="app-footer">
           <p>
-            Stellar Chapter Pay Â· Soroban
+            Stellar Chapter Pay · Soroban
             Testnet MVP
           </p>
 

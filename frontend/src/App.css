@@ -706,3 +706,154 @@
     right: 24px;
   }
 }
+
+/* BEGIN COMPACT USER ACTIVITY */
+
+.activity-panel.is-compact {
+  align-self: start;
+  padding: 20px;
+}
+
+.activity-panel.is-compact
+.panel-header {
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.activity-panel.is-compact
+.panel-header h2 {
+  margin-top: 5px;
+  font-size: 19px;
+}
+
+.activity-panel.is-compact
+.panel-state {
+  padding: 6px 9px;
+  font-size: 10px;
+}
+
+.activity-list.is-compact {
+  gap: 0;
+}
+
+.activity-list.is-compact
+.activity-item {
+  grid-template-columns:
+    8px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.activity-list.is-compact
+.activity-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.activity-list.is-compact
+.activity-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+}
+
+.activity-content {
+  min-width: 0;
+}
+
+.activity-list.is-compact
+.activity-name {
+  margin: 0;
+  color: #dce8fa;
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: none;
+}
+
+.activity-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+  color: #7789a3;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.activity-meta span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-meta time {
+  flex: 0 0 auto;
+  color: #687b98;
+  white-space: nowrap;
+}
+
+.activity-empty-state {
+  margin: 0;
+  padding: 14px;
+  border:
+    1px solid
+    rgba(154, 177, 218, 0.1);
+  border-radius: 12px;
+  background:
+    rgba(5, 14, 31, 0.35);
+  color: #7f91aa;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+@media (max-width: 520px) {
+  .activity-meta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+}
+
+/* END COMPACT USER ACTIVITY */
+/* BEGIN FULL WALLET ADDRESS */
+
+.wallet-address-row {
+  align-items: flex-start;
+}
+
+.wallet-address-row > span {
+  flex: 0 0 auto;
+}
+
+.wallet-full-address {
+  flex: 1;
+  min-width: 0;
+  max-width: none !important;
+  color: #dbe7f8;
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  text-align: right;
+  word-break: break-word;
+}
+
+@media (max-width: 680px) {
+  .wallet-address-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .wallet-full-address {
+    width: 100%;
+    text-align: left;
+  }
+}
+
+/* END FULL WALLET ADDRESS */

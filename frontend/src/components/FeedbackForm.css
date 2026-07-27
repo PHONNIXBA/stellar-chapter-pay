@@ -76,7 +76,8 @@
 .feedback-profile {
   display: grid;
   grid-template-columns:
-    repeat(3, minmax(0, 1fr));
+    minmax(0, 1fr)
+    minmax(180px, 0.4fr);
   gap: 12px;
 }
 
@@ -102,6 +103,11 @@
 .feedback-profile strong {
   overflow: hidden;
   color: #dce9ff;
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -109,9 +115,7 @@
 
 .feedback-form {
   display: grid;
-  grid-template-columns:
-    minmax(0, 0.7fr)
-    minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 14px;
 }
 
@@ -167,18 +171,13 @@
   opacity: 0.6;
 }
 
-.feedback-comment-field {
-  grid-column: 1 / -1;
-}
-
-.feedback-comment-field small {
+.feedback-field small {
   justify-self: end;
   color: #70839f;
   font-size: 11px;
 }
 
 .feedback-submit {
-  grid-column: 1 / -1;
   min-height: 46px;
   border: 0;
   border-radius: 12px;
@@ -256,14 +255,8 @@
     align-self: flex-start;
   }
 
-  .feedback-profile,
-  .feedback-form {
+  .feedback-profile {
     grid-template-columns: 1fr;
-  }
-
-  .feedback-comment-field,
-  .feedback-submit {
-    grid-column: auto;
   }
 }
 
